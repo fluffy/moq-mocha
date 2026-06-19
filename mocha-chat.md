@@ -11,7 +11,7 @@ Terminology and architecture is defined in mocha-arch.
 
 # MoQ Chat Naming 
 
-The Moq Track are in a Namespace of:
+The Moq Tracks that carry chat messages are in a Namespace of:
 
 mocha-v1-<Proivder>-<OrgID>-<TeamID>-<ChannelId>-chat
 
@@ -33,6 +33,23 @@ Message have a timestamp in ms formed from the publisher clock of when the sende
 
 # Moq Roster Naming 
 
+mocha-v1-<Proivder>-<OrgID>-<TeamID>-<ChannelId>-roster
+
+The tracknames are:
+
+user-<DevID>
+
+Each object has a JSON providing informaition about mapping of UserID to user in the idendity sytem. 
+
+# Channel Discover 
+
+mocha-v1-<Proivder>-<OrgID>-<TeamID>-channel_info
+
+The tracknames are:
+
+channel_<DevID>
+
+Objects have the names of Channels in the team. 
 
 
 
