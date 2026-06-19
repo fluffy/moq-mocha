@@ -13,7 +13,7 @@ Terminology and architecture is defined in mocha-arch.
 
 The Moq Tracks that carry chat messages are in a Namespace of:
 
-mocha-v1-<Proivder>-<OrgID>-<TeamID>-<ChannelId>-chat
+mocha-v1-<Proivder>-<OrgID>-chat-<TeamID>-<ChannelId>
 
 The tracknsames are:
 
@@ -33,7 +33,7 @@ Message have a timestamp in ms formed from the publisher clock of when the sende
 
 # Moq Roster Naming 
 
-mocha-v1-<Proivder>-<OrgID>-<TeamID>-<ChannelId>-roster
+mocha-v1-<Proivder>-<OrgID>-roster-<TeamID>-<ChannelId>
 
 The tracknames are:
 
@@ -43,7 +43,7 @@ Each object has a JSON providing informaition about mapping of UserID to user in
 
 # Channel Discover 
 
-mocha-v1-<Proivder>-<OrgID>-<TeamID>-channel_info
+mocha-v1-<Proivder>-<OrgID>-channel_info-<TeamID>
 
 The tracknames are:
 
