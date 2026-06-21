@@ -493,13 +493,12 @@ Track discovery is accomplished via the roster (see
     |  Prefix: mocha-v1-example.com-acme-chat-eng-general
     |------------------------>|
     |                         |
-    |  (Relay announces available tracks:)
+    |  (Relay publishes matching tracks:)
     |  msg-v1-alice-laptop-1  |
     |  msg-v1-carol-phone-1   |
     |<------------------------|
     |                         |
-    |  SUBSCRIBE each track   |
-    |------------------------>|
+    |  (Client accepts tracks)|
     |                         |
     |  OBJECTs arrive from    |
     |  all device tracks      |
@@ -507,8 +506,8 @@ Track discovery is accomplished via the roster (see
     |                         |
 ~~~
 
-Alternatively, a participant can subscribe to individual
-tracks discovered through the roster.
+Alternatively, if the roster provides full track names,
+a participant can SUBSCRIBE to individual tracks directly.
 
 ## Late Join
 
