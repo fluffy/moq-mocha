@@ -590,6 +590,92 @@ object. When a device leaves, it publishes an updated roster
 object with status "departed" or the track simply becomes
 inactive.
 
+# Channel Discovery {#channel-discovery}
+
+## Channel Info Namespace
+
+Channel discovery tracks use the namespace:
+
+~~~
+  mocha-v1-<Provider>-<OrgID>-channel_info-<TeamID>
+~~~
+
+For example:
+
+~~~
+  mocha-v1-example.com-acme-channel_info-engineering
+~~~
+
+## Channel Info Track Names
+
+Each device (or server) that creates or manages channels
+publishes channel information on a track:
+
+~~~
+  channel_<DevID>
+~~~
+
+For example:
+
+~~~
+  Namespace: mocha-v1-example.com-acme-channel_info-engineering
+  Track Name: channel_admin-server-1
+~~~
+
+## Channel Info Object Format
+
+Objects on channel info tracks contain the names and metadata
+of channels available in the team:
+
+~~~json
+{
+  "channels": [
+    {
+      "channel_id": "general",
+      "name": "#general",
+      "topic": "General discussion",
+      "type": "public"
+    },
+    {
+      "channel_id": "backend",
+      "name": "#backend",
+      "topic": "Backend engineering",
+      "type": "public"
+    },
+    {
+      "channel_id": "secret-project",
+      "name": "#secret-project",
+      "type": "private"
+    }
+  ]
+}
+~~~
+
+## Channel Discovery Flow
+
+A participant discovers available channels by subscribing to
+the channel info namespace for their team:
+
+~~~
+  Client                    Relay
+    |                         |
+    |  SUBSCRIBE_NAMESPACE    |
+    |  Prefix: mocha-v1-example.com-acme-channel_info-engineering
+    |------------------------>|
+    |                         |
+    |  (Relay announces channel info tracks)
+    |<------------------------|
+    |                         |
+    |  SUBSCRIBE channel info track
+    |------------------------>|
+    |                         |
+    |  OBJECT: channel list   |
+    |<------------------------|
+    |                         |
+    |  (Client displays available channels to user)
+    |                         |
+~~~
+
 # Security Considerations
 
 TODO
