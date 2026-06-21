@@ -728,6 +728,6 @@ E2EE as defined in {{MOCHA}}.
 
 # IANA Considerations
 
-TODO
+This document has no IANA actions.
 
 --- back
