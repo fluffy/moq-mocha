@@ -531,6 +531,65 @@ To display a unified channel view, a participant:
 3. Builds the causal DAG from the previous fields.
 4. Linearizes messages for display (see {{causal-ordering}}).
 
+# MoQ Roster Naming {#roster-naming}
+
+## Roster Namespace
+
+The roster tracks for a channel use the namespace:
+
+~~~
+  mocha-v1-<Provider>-<OrgID>-roster-<TeamID>-<ChannelID>
+~~~
+
+For example:
+
+~~~
+  mocha-v1-example.com-acme-roster-engineering-general
+~~~
+
+## Roster Track Names
+
+Each device publishes its user information on a track:
+
+~~~
+  user-<DevID>
+~~~
+
+For example:
+
+~~~
+  Namespace: mocha-v1-example.com-acme-roster-engineering-general
+  Track Name: user-alice-laptop-1
+~~~
+
+## Roster Object Format
+
+Each object on a roster track contains a JSON document
+providing information about the mapping of the device to
+a user in the identity system:
+
+~~~json
+{
+  "user_id": "alice@acme.example.com",
+  "display_name": "Alice Smith",
+  "dev_id": "alice-laptop-1",
+  "joined_at": 1715788000000,
+  "status": "active"
+}
+~~~
+
+## Roster Usage
+
+Participants subscribe to the roster namespace to discover
+which devices are active in a channel. The roster provides
+the set of msg-v1-\<DevID\> tracks that should be subscribed
+for receiving channel messages.
+
+When a new device joins a channel, it publishes a roster
+object. When a device leaves, it publishes an updated roster
+object with status "departed" or the track simply becomes
+inactive.
+
 # Security Considerations
 
 TODO
