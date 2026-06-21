@@ -50,13 +50,69 @@ informative:
 
 --- abstract
 
-TODO
+This document specifies the text messaging functionality for MOCHA
+(MoQ Open Communication & Hosting Architecture). It defines how
+participants send and receive text messages in channels using
+MoQ Transport (MOQT) publish/subscribe primitives. Each device
+publishes messages on its own track within a channel namespace,
+enabling decentralized message production with relay-based
+fan-out. This specification covers message naming, format,
+causal ordering, delivery, roster management, and channel
+discovery for text-based chat.
 
 --- middle
 
-# TODO
+# Introduction
 
-TODO
+Text messaging is the most fundamental operation in any
+communication system. This document specifies how MOCHA enables
+real-time text exchange between participants in channels using
+MOQT's publish/subscribe model.
+
+MOCHA Chat assigns each publishing device its own MOQT track
+within a channel namespace. Messages are grouped by NTP time
+in minutes, enabling straightforward time-based history
+retrieval and relay caching. Causal ordering is maintained
+through a previous-message linkage that forms a DAG across
+the per-device tracks in a channel.
+
+
+# Conventions and Definitions
+
+The key words "MUST", "MUST NOT", "SHOULD", and "MAY" in this
+document are to be interpreted as described in BCP 14
+{{!RFC2119}} {{!RFC8174}}.
+
+This document uses terminology and architecture defined in
+{{MOCHA-ARCH}}, including Provider, Organization, Team, Channel,
+Device, DevID, GroupID, and ObjectID. The MOQT transport
+primitives (Track, Group, Object, Namespace, Relay) are defined
+in {{MoQTransport}}.
+
+The following additional terms are used:
+
+Provider:
+: The service provider operating the MOCHA deployment. Identified
+  by a domain name or similar unique string.
+
+OrgID:
+: The organization identifier within a provider's deployment.
+
+TeamID:
+: An identifier for a team or workspace within an organization.
+
+ChannelID:
+: An identifier for a specific channel within a team.
+
+DevID:
+: A unique identifier for a publishing device. Each device that
+  can send messages has its own DevID and publishes on its own
+  track.
+
+MsgID:
+: A globally unique identifier for a message, formed by hashing
+  the full track name concatenated with the Group ID and
+  Object ID.
 
 # Security Considerations
 
