@@ -476,6 +476,61 @@ publish access to its track within the channel namespace
 before publishing. Authorization mechanisms are defined
 in {{MOCHA}}.
 
+# Receiving Messages {#receiving}
+
+## Subscribe Flow
+
+To receive messages in a channel, a participant subscribes
+to the message tracks of all active devices in the channel.
+Track discovery is accomplished via the roster (see
+{{roster-naming}}) or SUBSCRIBE_NAMESPACE:
+
+~~~
+  Bob                       Relay
+    |                         |
+    |  SUBSCRIBE_NAMESPACE    |
+    |  Prefix: mocha-v1-example.com-acme-chat-eng-general
+    |------------------------>|
+    |                         |
+    |  (Relay announces available tracks:)
+    |  msg-v1-alice-laptop-1  |
+    |  msg-v1-carol-phone-1   |
+    |<------------------------|
+    |                         |
+    |  SUBSCRIBE each track   |
+    |------------------------>|
+    |                         |
+    |  OBJECTs arrive from    |
+    |  all device tracks      |
+    |<------------------------|
+    |                         |
+~~~
+
+Alternatively, a participant can subscribe to individual
+tracks discovered through the roster.
+
+## Late Join
+
+When a participant subscribes to a channel, it uses MOQT's
+Joining FETCH to retrieve recent groups (minutes) from the
+relay's cache for each device track. This provides message
+history for context.
+
+## Deduplication
+
+Participants MUST deduplicate messages based on MsgID. The
+same message may be received multiple times due to relay
+topology or reconnection.
+
+## Channel Reconstruction
+
+To display a unified channel view, a participant:
+
+1. Receives messages from all device tracks in the channel.
+2. Computes or verifies each message's MsgID.
+3. Builds the causal DAG from the previous fields.
+4. Linearizes messages for display (see {{causal-ordering}}).
+
 # Security Considerations
 
 TODO
