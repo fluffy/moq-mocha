@@ -400,6 +400,7 @@ acyclic graph (DAG) across all per-device tracks in a channel.
 ~~~
 
 In this example:
+
 * A1 has no previous (first message in channel, or references
   messages not shown).
 * B1.previous = [A1] (Bob saw Alice's first message).
