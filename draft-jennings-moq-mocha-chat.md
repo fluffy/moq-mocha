@@ -380,6 +380,35 @@ A text message as JSON (before compression):
 }
 ~~~
 
+# Causal Ordering {#causal-ordering}
+
+## Previous Message List
+
+Each message contains a "previous" field listing the MsgID(s)
+of the most recent message(s) the publisher has observed in
+the channel at the time of publishing. This forms a directed
+acyclic graph (DAG) across all per-device tracks in a channel.
+
+~~~
+  Causal DAG across devices:
+
+  Alice's track:     A1 -----> A2 ---------> A3
+                      \          \           /
+  Bob's track:         --> B1 --> B2 ------>
+                                   \
+  Carol's track:                    --> C1
+~~~
+
+In this example:
+* A1 has no previous (first message in channel, or references
+  messages not shown).
+* B1.previous = [A1] (Bob saw Alice's first message).
+* A2.previous = [B1] (Alice saw Bob's reply).
+* B2.previous = [A2] (Bob saw Alice's second message).
+* C1.previous = [B2] (Carol saw Bob's second message).
+* A3.previous = [B2, C1] (Alice saw both Bob and Carol's
+  latest messages).
+
 # Security Considerations
 
 TODO
