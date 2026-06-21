@@ -202,6 +202,130 @@ exactly one MOQT object.
             +-- Object 0: "On my way, 2 min"
 ~~~
 
+# Message Format {#message-format}
+
+## Encoding
+
+Messages are encoded as JSON {{JSON}} and compressed before
+being placed in the MOQT object payload. Implementations
+MUST support gzip compression and MAY support brotli. The
+compression algorithm in use is signaled via the track's
+metadata.
+
+Compression reduces bandwidth while maintaining
+human-readability of the wire format for debugging (by
+decompressing captured payloads).
+
+## Message Structure
+
+The message structure follows the MIMI content format style
+{{MIMI-CONTENT}}, adapted for MOCHA's channel-based messaging.
+Fields use short keys for compact JSON encoding.
+
+~~~json
+{
+  "msgId": "<hex-encoded MsgID>",
+  "type": 0,
+  "ts": 1715788800000,
+  "sender": {
+    "userId": "<user identifier>",
+    "displayName": "<human-readable name>",
+    "devId": "<device identifier>"
+  },
+  "content": {
+    "type": "text/plain",
+    "body": "<message text>"
+  },
+  "prev": ["<hex-encoded MsgID>", ...],
+  "expires": 0,
+  "ext": {}
+}
+~~~
+
+The message fields are defined as follows:
+
+### Top-Level Fields
+
+msgId (REQUIRED):
+: The globally unique identifier for this message, hex-encoded.
+  Computed as defined in {{msg-id-computation}}.
+
+type (REQUIRED):
+: Integer message type. This specification defines type 0
+  (none/system) and type 1 (text). The type field is
+  extensible for future message categories.
+
+ts (REQUIRED):
+: The time the message was created, in milliseconds since
+  the Unix epoch. Set by the publisher's local clock.
+
+sender (REQUIRED):
+: The originator of the message. See {{sender-info}}.
+
+content (REQUIRED):
+: The message payload. See {{content-structure}}.
+
+prev (REQUIRED):
+: A list of hex-encoded MsgIDs of the immediately preceding
+  message(s) in the channel. This forms a causal ordering
+  DAG across all tracks in the channel. An empty array
+  indicates no known predecessors. See {{causal-ordering}}.
+
+expires (OPTIONAL):
+: Expiration time in milliseconds since the Unix epoch. If
+  non-zero, clients SHOULD hide the message after this time.
+  A value of 0 indicates no expiration.
+
+ext (OPTIONAL):
+: An object containing extension fields. Implementations
+  MUST ignore unknown extension keys. Extensions are
+  namespaced to avoid collisions (see {{MOCHA}}).
+
+### Sender Info {#sender-info}
+
+The sender object identifies the message author:
+
+userId (REQUIRED):
+: A stable identifier for the user within the identity
+  system (e.g., "alice@acme.example.com").
+
+displayName (REQUIRED):
+: A human-readable label for rendering in the UI.
+
+devId (REQUIRED):
+: The identifier of the publishing device. MUST match
+  the DevID in the track name from which the message
+  is published.
+
+### Content Structure {#content-structure}
+
+The content object carries the message payload, following
+MIMI's content disposition pattern:
+
+type (REQUIRED):
+: A MIME type string indicating the content format. This
+  specification defines "text/plain" for plain text messages.
+  Implementations MUST support "text/plain".
+
+body (REQUIRED):
+: The content payload. For "text/plain", this is a UTF-8
+  string containing the message text.
+
+Future specifications MAY define additional content types
+(e.g., "text/markdown"). Clients receiving an unknown content
+type SHOULD render the body as plain text if it is a string,
+or display a placeholder indicating an unsupported format.
+
+### Message Type Values
+
+| Value | Name   | Description                          |
+|:===== |:====== |:==================================== |
+| 0     | none   | System or control message (no body)  |
+| 1     | text   | Text message                         |
+
+The type enum is extensible. Future specifications define
+additional values for media, reactions, and other content.
+
 # Security Considerations
 
 TODO
