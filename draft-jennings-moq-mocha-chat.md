@@ -700,7 +700,31 @@ provides approximately N minutes of history.
 
 # Security Considerations
 
-TODO
+## Transport Security
+
+All message delivery MUST use TLS 1.3 via QUIC or
+WebTransport, providing hop-by-hop encryption between
+participants and relays.
+
+## Authorization
+
+Devices MUST be authorized before publishing or subscribing
+to tracks. Authorization is enforced at the relay as
+specified in {{MOCHA}}.
+
+## Message Integrity
+
+The MsgID construction (hash of track name + position) allows
+any recipient to verify the claimed identity of a message.
+Participants SHOULD verify that the sender's dev_id in the
+message matches the track name from which the message was
+received.
+
+## Content Visibility
+
+Without end-to-end encryption, relays can observe message
+content. Deployments requiring confidentiality MUST enable
+E2EE as defined in {{MOCHA}}.
 
 # IANA Considerations
 
