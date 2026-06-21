@@ -435,6 +435,47 @@ A simple linearization algorithm:
 3. For identical timestamps, sort by MsgID (lexicographic
    on the hash bytes) for deterministic ordering.
 
+# Sending Messages {#sending}
+
+## Publish Flow
+
+To send a message, a device publishes a MOQT object to its
+own track within the channel namespace:
+
+1. Device determines the current Group ID from NTP time
+   in minutes.
+2. Device assigns the next Object ID for this group on its
+   track.
+3. Device computes the MsgID from the track name, group, and
+   object.
+4. Device records the MsgID(s) of the most recent message(s)
+   it has received in this channel as the previous list.
+5. Device constructs the ChatMessage, serializes as JSON,
+   compresses, and publishes as a MOQT object.
+
+~~~
+  Alice                     Relay
+    |                         |
+    |  PUBLISH object         |
+    |  Namespace: mocha-v1-example.com-acme-chat-eng-general
+    |  Track: msg-v1-alice-laptop-1
+    |  Group: 29598720        |
+    |  Object: 0              |
+    |  [compressed JSON ChatMessage]
+    |------------------------>|
+    |                         |
+    |                         |  (relay caches and fans out
+    |                         |   to subscribers of this track)
+    |                         |
+~~~
+
+## Authorization
+
+A device MUST hold a valid authorization token granting
+publish access to its track within the channel namespace
+before publishing. Authorization mechanisms are defined
+in {{MOCHA}}.
+
 # Security Considerations
 
 TODO
