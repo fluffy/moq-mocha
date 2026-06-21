@@ -409,6 +409,32 @@ In this example:
 * A3.previous = [B2, C1] (Alice saw both Bob and Carol's
   latest messages).
 
+## Ordering Semantics
+
+The previous message list provides causal ordering:
+
+* If message B lists message A in its previous list
+  (directly or transitively), then A causally precedes B.
+* Messages with no causal relationship are concurrent and
+  may be displayed in any order (typically by timestamp).
+* Clients reconstruct channel ordering by traversing the
+  DAG.
+
+## Display Ordering
+
+Clients SHOULD use the causal DAG to determine display
+order. When causal ordering does not fully determine order
+(concurrent messages), clients SHOULD fall back to timestamp
+ordering.
+
+A simple linearization algorithm:
+
+1. Topologically sort messages using the DAG.
+2. For concurrent messages (no causal relationship), sort
+   by timestamp.
+3. For identical timestamps, sort by MsgID (lexicographic
+   on the hash bytes) for deterministic ordering.
+
 # Security Considerations
 
 TODO
