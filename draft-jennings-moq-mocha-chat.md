@@ -676,6 +676,28 @@ the channel info namespace for their team:
     |                         |
 ~~~
 
+# Delivery Properties {#delivery}
+
+## Reliability
+
+Text messages MUST be delivered reliably using QUIC streams.
+Messages use MOQT's stream-based delivery to ensure no
+message loss.
+
+## Fan-Out
+
+When multiple participants subscribe to the same device
+track, the relay performs fan-out delivery. Each published
+message is delivered to all subscribers of that track.
+
+## Caching
+
+Relays MUST cache published message objects for the duration
+of their configured cache retention. Cached objects serve
+late-join (Joining FETCH) and history retrieval. Since groups
+correspond to NTP minutes, a relay caching the last N groups
+provides approximately N minutes of history.
+
 # Security Considerations
 
 TODO
