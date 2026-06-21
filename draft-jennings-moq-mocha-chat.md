@@ -114,6 +114,94 @@ MsgID:
   the full track name concatenated with the Group ID and
   Object ID.
 
+# MoQ Chat Naming {#chat-naming}
+
+## Channel Namespace
+
+The MOQT tracks that carry chat messages use a namespace of:
+
+~~~
+  mocha-v1-<Provider>-<OrgID>-chat-<TeamID>-<ChannelID>
+~~~
+
+For example, messages in the "general" channel of team
+"engineering" at organization "acme" hosted by provider
+"example.com":
+
+~~~
+  mocha-v1-example.com-acme-chat-engineering-general
+~~~
+
+## Track Names
+
+Each device publishes messages on its own track within the
+channel namespace:
+
+~~~
+  msg-v1-<DevID>
+~~~
+
+For example, if Alice's device has DevID "alice-laptop-1":
+
+~~~
+  Namespace: mocha-v1-example.com-acme-chat-engineering-general
+  Track Name: msg-v1-alice-laptop-1
+~~~
+
+This per-device track design allows each device to publish
+independently without coordinating Group IDs with other
+publishers.
+
+## Group Semantics
+
+Groups are NTP time in minutes. The Group ID corresponds
+to the NTP timestamp (in minutes) at the time the message
+is published:
+
+~~~
+  group_id = floor(ntp_timestamp_seconds / 60)
+~~~
+
+This provides:
+
+* Natural time-based partitioning of messages.
+* Straightforward mapping from wall-clock time to Group ID
+  for history retrieval.
+* One-minute granularity balances caching efficiency with
+  latency.
+
+## Object Semantics
+
+Within each group, messages are assigned sequentially
+increasing Object IDs starting at 0. Each message occupies
+exactly one MOQT object.
+
+## MOQT Object Mapping
+
+~~~
+  Namespace: mocha-v1-example.com-acme-chat-engineering-general
+    |
+    +-- Track: msg-v1-alice-laptop-1
+    |   +-- Group 29598720 (minute: 2024-05-15 16:00 UTC)
+    |   |   +-- Object 0: "Hello everyone"
+    |   |   +-- Object 1: "Ready for standup?"
+    |   |
+    |   +-- Group 29598721 (minute: 2024-05-15 16:01 UTC)
+    |       +-- Object 0: "Let's start"
+    |
+    +-- Track: msg-v1-bob-desktop-1
+    |   +-- Group 29598720
+    |   |   +-- Object 0: "Hey Alice!"
+    |   |
+    |   +-- Group 29598721
+    |       +-- Object 0: "Sounds good"
+    |       +-- Object 1: "Sharing my screen now"
+    |
+    +-- Track: msg-v1-carol-phone-1
+        +-- Group 29598721
+            +-- Object 0: "On my way, 2 min"
+~~~
+
 # Security Considerations
 
 TODO
