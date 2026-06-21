@@ -326,6 +326,60 @@ or display a placeholder indicating an unsupported format.
 The type enum is extensible. Future specifications define
 additional values for media, reactions, and other content.
 
+## MsgID Computation {#msg-id-computation}
+
+The MsgID for a message is formed by computing the SHA-256
+hash of the concatenation of:
+
+1. The full track name (namespace + "/" + track name)
+2. The Group ID (encoded as a big-endian 64-bit unsigned integer)
+3. The Object ID (encoded as a big-endian 64-bit unsigned integer)
+
+~~~
+  MsgID = SHA-256(
+    full_track_name ||
+    big_endian_uint64(group_id) ||
+    big_endian_uint64(object_id)
+  )
+~~~
+
+For example:
+
+~~~
+  full_track_name = "mocha-v1-example.com-acme-chat-engineering-general/msg-v1-alice-laptop-1"
+  group_id = 29598720
+  object_id = 0
+
+  MsgID = SHA-256(full_track_name || 0x0000000001C3E400 || 0x0000000000000000)
+~~~
+
+This construction ensures MsgIDs are globally unique and
+deterministically computable by any participant that knows
+the track name and position. The hex encoding of the MsgID
+in JSON uses lowercase hexadecimal characters.
+
+## Example Message
+
+A text message as JSON (before compression):
+
+~~~json
+{
+  "msgId": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2",
+  "type": 1,
+  "ts": 1715788800000,
+  "sender": {
+    "userId": "alice@acme.example.com",
+    "displayName": "Alice Smith",
+    "devId": "alice-laptop-1"
+  },
+  "content": {
+    "type": "text/plain",
+    "body": "Hello everyone, ready for the standup?"
+  },
+  "prev": ["e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6"]
+}
+~~~
+
 # Security Considerations
 
 TODO
