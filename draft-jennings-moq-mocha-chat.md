@@ -1,5 +1,5 @@
 ---
-title: "MOCHA Chat: Text Messaging over MoQ Transport"
+title: "MOCHA Chat: Messaging over MoQ Transport"
 abbrev: "mocha-chat"
 category: std
 
@@ -40,6 +40,10 @@ normative:
   MOCHA-ARCH: I-D.draft-jennings-moq-mocha-arch
   JSON: RFC8259
 
+  RFC1952:
+  RFC7932:
+  RFC8126:
+
 informative:
   MIMI-CONTENT:
     title: "More Instant Messaging Interoperability (MIMI) Content Format"
@@ -50,9 +54,9 @@ informative:
 
 --- abstract
 
-This document specifies the text messaging functionality for MOCHA
+This document specifies the messaging functionality for MOCHA
 (MoQ Open Communication & Hosting Architecture). It defines how
-participants send and receive text messages in channels using
+participants send and receive messages in channels using
 MoQ Transport (MOQT) publish/subscribe primitives. Each device
 publishes messages on its own track within a channel namespace,
 enabling decentralized message production with relay-based
@@ -64,9 +68,9 @@ discovery for text-based chat.
 
 # Introduction
 
-Text messaging is the most fundamental operation in any
+Messaging is the most fundamental operation in any
 communication system. This document specifies how MOCHA enables
-real-time text exchange between participants in channels using
+real-time message exchange between participants in channels using
 MOQT's publish/subscribe model.
 
 MOCHA Chat assigns each publishing device its own MOQT track
@@ -79,9 +83,7 @@ the per-device tracks in a channel.
 
 # Conventions and Definitions
 
-The key words "MUST", "MUST NOT", "SHOULD", and "MAY" in this
-document are to be interpreted as described in BCP 14
-{{!RFC2119}} {{!RFC8174}}.
+See BCP 14 {{!RFC2119}} {{!RFC8174}}.
 
 This document uses terminology and architecture defined in
 {{MOCHA-ARCH}}, including Provider, Organization, Team, Channel,
@@ -118,10 +120,11 @@ MsgID:
 
 ## Channel Namespace
 
-The MOQT tracks that carry chat messages use a namespace of:
+The MOQT tracks that carry chat messages use a namespace
+tuple with the following fields:
 
 ~~~
-  mocha-v1-<Provider>-<OrgID>-chat-<TeamID>-<ChannelID>
+  ("mocha_v1", <Provider>, <OrgID>, "chat", <TeamID>, <ChannelID>)
 ~~~
 
 For example, messages in the "general" channel of team
@@ -129,23 +132,24 @@ For example, messages in the "general" channel of team
 "example.com":
 
 ~~~
-  mocha-v1-example.com-acme-chat-engineering-general
+  ("mocha_v1", "example.com", "acme", "chat", "engineering", "general")
 ~~~
 
 ## Track Names
 
 Each device publishes messages on its own track within the
-channel namespace:
+channel namespace. The track name is a single byte sequence:
 
 ~~~
-  msg-v1-<DevID>
+  msg_v1_<DevID>
 ~~~
 
 For example, if Alice's device has DevID "alice-laptop-1":
 
 ~~~
-  Namespace: mocha-v1-example.com-acme-chat-engineering-general
-  Track Name: msg-v1-alice-laptop-1
+  Namespace: ("mocha_v1", "example.com", "acme", "chat",
+              "engineering", "general")
+  Track Name: "msg_v1_alice-laptop-1"
 ~~~
 
 This per-device track design allows each device to publish
@@ -179,9 +183,10 @@ exactly one MOQT object.
 ## MOQT Object Mapping
 
 ~~~
-  Namespace: mocha-v1-example.com-acme-chat-engineering-general
+  Namespace: ("mocha_v1", "example.com", "acme", "chat",
+              "engineering", "general")
     |
-    +-- Track: msg-v1-alice-laptop-1
+    +-- Track: msg_v1_alice-laptop-1
     |   +-- Group 29598720 (minute: 2024-05-15 16:00 UTC)
     |   |   +-- Object 0: "Hello everyone"
     |   |   +-- Object 1: "Ready for standup?"
@@ -189,7 +194,7 @@ exactly one MOQT object.
     |   +-- Group 29598721 (minute: 2024-05-15 16:01 UTC)
     |       +-- Object 0: "Let's start"
     |
-    +-- Track: msg-v1-bob-desktop-1
+    +-- Track: msg_v1_bob-desktop-1
     |   +-- Group 29598720
     |   |   +-- Object 0: "Hey Alice!"
     |   |
@@ -197,7 +202,7 @@ exactly one MOQT object.
     |       +-- Object 0: "Sounds good"
     |       +-- Object 1: "Sharing my screen now"
     |
-    +-- Track: msg-v1-carol-phone-1
+    +-- Track: msg_v1_carol-phone-1
         +-- Group 29598721
             +-- Object 0: "On my way, 2 min"
 ~~~
@@ -207,14 +212,36 @@ exactly one MOQT object.
 ## Encoding
 
 Messages are encoded as JSON {{JSON}} and compressed before
-being placed in the MOQT object payload. Implementations
-MUST support gzip compression and MAY support brotli. The
-compression algorithm in use is signaled via the track's
-metadata.
+being placed in the MOQT object payload. The compression
+algorithm is signaled via the MOCHA_COMPRESSION track
+property (see {{compression-property}}).
 
-Compression reduces bandwidth while maintaining
-human-readability of the wire format for debugging (by
-decompressing captured payloads).
+## Compression Track Property {#compression-property}
+
+The MOCHA_COMPRESSION track property signals the compression
+algorithm applied to ALL objects on a message track. Publishers
+MUST include this property in the PUBLISH message
+(publisher-initiated flow) or SUBSCRIBE_OK
+(subscriber-initiated flow).
+
+Subscribers MUST check for this property before processing
+track payloads. If the property is absent, the subscriber
+MUST treat the payload as uncompressed. If the property is
+present with a value the subscriber does not support, the
+subscriber MUST NOT attempt to process the payload and SHOULD
+unsubscribe from the track.
+
+The following compression algorithm values are defined:
+
+| Value | Algorithm     | Reference   |
+|:===== |:============= |:=========== |
+| 0     | None          | This document |
+| 1     | GZIP          | {{!RFC1952}} |
+| 2     | Brotli        | {{!RFC7932}} |
+
+Implementations MUST support GZIP (value 1) and MAY support
+Brotli (value 2). A publisher that does not compress MUST
+either set the property to 0 or omit it entirely.
 
 ## Message Structure
 
@@ -331,26 +358,57 @@ additional values for media, reactions, and other content.
 The MsgID for a message is formed by computing the SHA-256
 hash of the concatenation of:
 
-1. The full track name (namespace + "/" + track name)
+1. The full track name, serialized using the MOQT wire
+   encoding defined in {{MoQTransport}}
 2. The Group ID (encoded as a big-endian 64-bit unsigned integer)
 3. The Object ID (encoded as a big-endian 64-bit unsigned integer)
 
+The full track name is serialized as the Track Namespace
+followed by the Track Name, each using the MOQT wire format:
+
+~~~
+  Serialized Full Track Name:
+    Number of Namespace Fields (vi64)
+    [for each field:]
+      Namespace Field Length (vi64)
+      Namespace Field Value (..)
+    Track Name Length (vi64)
+    Track Name Value (..)
+~~~
+
+The MsgID is then:
+
 ~~~
   MsgID = SHA-256(
-    full_track_name ||
+    serialized_full_track_name ||
     big_endian_uint64(group_id) ||
     big_endian_uint64(object_id)
   )
 ~~~
 
-For example:
+For example, with namespace tuple ("mocha_v1", "example.com",
+"acme", "chat", "engineering", "general") and track name
+"msg_v1_alice-laptop-1":
 
 ~~~
-  full_track_name = "mocha-v1-example.com-acme-chat-engineering-general/msg-v1-alice-laptop-1"
+  serialized_full_track_name =
+    0x06                          // 6 namespace fields
+    0x08 "mocha_v1"               // field 1
+    0x0B "example.com"            // field 2
+    0x04 "acme"                   // field 3
+    0x04 "chat"                   // field 4
+    0x0B "engineering"            // field 5
+    0x07 "general"                // field 6
+    0x15 "msg_v1_alice-laptop-1"  // track name
+
   group_id = 29598720
   object_id = 0
 
-  MsgID = SHA-256(full_track_name || 0x0000000001C3E400 || 0x0000000000000000)
+  MsgID = SHA-256(
+    serialized_full_track_name ||
+    0x0000000001C3E400 ||
+    0x0000000000000000
+  )
 ~~~
 
 This construction ensures MsgIDs are globally unique and
@@ -458,8 +516,9 @@ own track within the channel namespace:
   Alice                     Relay
     |                         |
     |  PUBLISH object         |
-    |  Namespace: mocha-v1-example.com-acme-chat-eng-general
-    |  Track: msg-v1-alice-laptop-1
+    |  Namespace: ("mocha_v1", "example.com", "acme",
+    |              "chat", "engineering", "general")
+    |  Track: msg_v1_alice-laptop-1
     |  Group: 29598720        |
     |  Object: 0              |
     |  [compressed JSON ChatMessage]
@@ -490,12 +549,13 @@ Track discovery is accomplished via the roster (see
   Bob                       Relay
     |                         |
     |  SUBSCRIBE_NAMESPACE    |
-    |  Prefix: mocha-v1-example.com-acme-chat-eng-general
+    |  Prefix: ("mocha_v1", "example.com", "acme",
+    |           "chat", "engineering", "general")
     |------------------------>|
     |                         |
-    |  (Relay publishes matching tracks:)
-    |  msg-v1-alice-laptop-1  |
-    |  msg-v1-carol-phone-1   |
+    |  (Relay announces matching tracks:)
+    |  msg_v1_alice-laptop-1  |
+    |  msg_v1_carol-phone-1   |
     |<------------------------|
     |                         |
     |  (Client accepts tracks)|
@@ -535,16 +595,16 @@ To display a unified channel view, a participant:
 
 ## Roster Namespace
 
-The roster tracks for a channel use the namespace:
+The roster tracks for a channel use the namespace tuple:
 
 ~~~
-  mocha-v1-<Provider>-<OrgID>-roster-<TeamID>-<ChannelID>
+  ("mocha_v1", <Provider>, <OrgID>, "roster", <TeamID>, <ChannelID>)
 ~~~
 
 For example:
 
 ~~~
-  mocha-v1-example.com-acme-roster-engineering-general
+  ("mocha_v1", "example.com", "acme", "roster", "engineering", "general")
 ~~~
 
 ## Roster Track Names
@@ -552,14 +612,15 @@ For example:
 Each device publishes its user information on a track:
 
 ~~~
-  user-<DevID>
+  user_<DevID>
 ~~~
 
 For example:
 
 ~~~
-  Namespace: mocha-v1-example.com-acme-roster-engineering-general
-  Track Name: user-alice-laptop-1
+  Namespace: ("mocha_v1", "example.com", "acme", "roster",
+              "engineering", "general")
+  Track Name: "user_alice-laptop-1"
 ~~~
 
 ## Roster Object Format
@@ -582,7 +643,7 @@ a user in the identity system:
 
 Participants subscribe to the roster namespace to discover
 which devices are active in a channel. The roster provides
-the set of msg-v1-\<DevID\> tracks that should be subscribed
+the set of msg_v1_\<DevID\> tracks that should be subscribed
 for receiving channel messages.
 
 When a new device joins a channel, it publishes a roster
@@ -594,16 +655,16 @@ inactive.
 
 ## Channel Info Namespace
 
-Channel discovery tracks use the namespace:
+Channel discovery tracks use the namespace tuple:
 
 ~~~
-  mocha-v1-<Provider>-<OrgID>-channel_info-<TeamID>
+  ("mocha_v1", <Provider>, <OrgID>, "channel_info", <TeamID>)
 ~~~
 
 For example:
 
 ~~~
-  mocha-v1-example.com-acme-channel_info-engineering
+  ("mocha_v1", "example.com", "acme", "channel_info", "engineering")
 ~~~
 
 ## Channel Info Track Names
@@ -618,8 +679,9 @@ publishes channel information on a track:
 For example:
 
 ~~~
-  Namespace: mocha-v1-example.com-acme-channel_info-engineering
-  Track Name: channel_admin-server-1
+  Namespace: ("mocha_v1", "example.com", "acme",
+              "channel_info", "engineering")
+  Track Name: "channel_admin-server-1"
 ~~~
 
 ## Channel Info Object Format
@@ -660,7 +722,8 @@ the channel info namespace for their team:
   Client                    Relay
     |                         |
     |  SUBSCRIBE_NAMESPACE    |
-    |  Prefix: mocha-v1-example.com-acme-channel_info-engineering
+    |  Prefix: ("mocha_v1", "example.com", "acme",
+    |           "channel_info", "engineering")
     |------------------------>|
     |                         |
     |  (Relay announces channel info tracks)
@@ -728,6 +791,39 @@ E2EE as defined in {{MOCHA}}.
 
 # IANA Considerations
 
-This document has no IANA actions.
+## MOCHA_COMPRESSION Track Property
+
+This document requests IANA registration of the
+MOCHA_COMPRESSION track property in the "MoQ Track Properties"
+registry (if established by {{MoQTransport}}).
+
+Property Name:
+: MOCHA_COMPRESSION
+
+Property Type:
+: Track Property
+
+Value Type:
+: Varint
+
+Description:
+: Signals the compression algorithm applied to all objects
+  on a MOCHA message track.
+
+Reference:
+: This document, {{compression-property}}
+
+## MOCHA Compression Algorithms Registry
+
+This document establishes a new "MOCHA Compression Algorithms"
+registry with the following initial entries:
+
+| Value | Algorithm | Reference       |
+|:===== |:========= |:=============== |
+| 0     | None      | This document   |
+| 1     | GZIP      | {{!RFC1952}}    |
+| 2     | Brotli    | {{!RFC7932}}    |
+
+New entries require Specification Required (per {{!RFC8126}}).
 
 --- back
