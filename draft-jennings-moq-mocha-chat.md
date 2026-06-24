@@ -528,7 +528,9 @@ in {{MOCHA}}.
 To receive messages in a channel, a participant subscribes
 to the message tracks of all active devices in the channel.
 Track discovery is accomplished via the roster (see
-{{roster-naming}}) or SUBSCRIBE_NAMESPACE:
+{{roster-naming}}) or SUBSCRIBE_NAMESPACE. Once the
+participant learns the available track names, it issues
+explicit SUBSCRIBE requests for each track of interest:
 
 ~~~
   Bob                       Relay
@@ -543,16 +545,23 @@ Track discovery is accomplished via the roster (see
     |  msg_v1_carol-phone-1   |
     |<------------------------|
     |                         |
-    |  (Client accepts tracks)|
+    |  SUBSCRIBE              |
+    |  Track: msg_v1_alice-laptop-1
+    |------------------------>|
+    |                         |
+    |  SUBSCRIBE              |
+    |  Track: msg_v1_carol-phone-1
+    |------------------------>|
     |                         |
     |  OBJECTs arrive from    |
-    |  all device tracks      |
+    |  subscribed tracks      |
     |<------------------------|
     |                         |
 ~~~
 
 Alternatively, if the roster provides full track names,
-a participant can SUBSCRIBE to individual tracks directly.
+a participant can SUBSCRIBE to individual tracks directly
+without using SUBSCRIBE_NAMESPACE.
 
 ## Late Join
 
@@ -577,6 +586,12 @@ To display a unified channel view, a participant:
 4. Linearizes messages for display (see {{causal-ordering}}).
 
 # MoQ Roster Naming {#roster-naming}
+
+The roster provides a discovery mechanism for participants
+to learn which devices are active in a channel. Each device
+publishes its presence and user identity on a dedicated
+roster track. Participants subscribe to the roster namespace
+to build the set of message tracks they should follow.
 
 ## Roster Namespace
 
@@ -637,6 +652,12 @@ object with status "departed" or the track simply becomes
 inactive.
 
 # Channel Discovery {#channel-discovery}
+
+Channel discovery allows participants to learn which channels
+are available within a team. A designated device (or server)
+publishes channel metadata on a channel info track. Participants
+subscribe to this namespace to present users with a list of
+channels they can join.
 
 ## Channel Info Namespace
 
