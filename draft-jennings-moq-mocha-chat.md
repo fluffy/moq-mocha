@@ -358,29 +358,18 @@ additional values for media, reactions, and other content.
 The MsgID for a message is formed by computing the SHA-256
 hash of the concatenation of:
 
-1. The full track name, serialized using the MOQT wire
-   encoding defined in {{MoQTransport}}
+1. The full track name in its canonical serialized form as
+   defined in Section 1.5 of {{MoQTransport}}: namespace
+   fields joined by a single hyphen ("-"), followed by a
+   double hyphen ("--"), followed by the track name. Bytes
+   outside the safe set (a-z, A-Z, 0-9, underscore) are
+   encoded as a period followed by two lowercase hex digits.
 2. The Group ID (encoded as a big-endian 64-bit unsigned integer)
 3. The Object ID (encoded as a big-endian 64-bit unsigned integer)
 
-The full track name is serialized as the Track Namespace
-followed by the Track Name, each using the MOQT wire format:
-
-~~~
-  Serialized Full Track Name:
-    Number of Namespace Fields (vi64)
-    [for each field:]
-      Namespace Field Length (vi64)
-      Namespace Field Value (..)
-    Track Name Length (vi64)
-    Track Name Value (..)
-~~~
-
-The MsgID is then:
-
 ~~~
   MsgID = SHA-256(
-    serialized_full_track_name ||
+    canonical_full_track_name ||
     big_endian_uint64(group_id) ||
     big_endian_uint64(object_id)
   )
@@ -388,24 +377,17 @@ The MsgID is then:
 
 For example, with namespace tuple ("mocha_v1", "example.com",
 "acme", "chat", "engineering", "general") and track name
-"msg_v1_alice-laptop-1":
+"msg_v1_alice.2dlaptop.2d1":
 
 ~~~
-  serialized_full_track_name =
-    0x06                          // 6 namespace fields
-    0x08 "mocha_v1"               // field 1
-    0x0B "example.com"            // field 2
-    0x04 "acme"                   // field 3
-    0x04 "chat"                   // field 4
-    0x0B "engineering"            // field 5
-    0x07 "general"                // field 6
-    0x15 "msg_v1_alice-laptop-1"  // track name
+  canonical_full_track_name =
+    "mocha_v1-example.2ecom-acme-chat-engineering-general--msg_v1_alice.2dlaptop.2d1"
 
   group_id = 29598720
   object_id = 0
 
   MsgID = SHA-256(
-    serialized_full_track_name ||
+    "mocha_v1-example.2ecom-acme-chat-engineering-general--msg_v1_alice.2dlaptop.2d1" ||
     0x0000000001C3E400 ||
     0x0000000000000000
   )
@@ -413,8 +395,11 @@ For example, with namespace tuple ("mocha_v1", "example.com",
 
 This construction ensures MsgIDs are globally unique and
 deterministically computable by any participant that knows
-the track name and position. The hex encoding of the MsgID
-in JSON uses lowercase hexadecimal characters.
+the track name and position. The canonical serialization is
+bijective (each binary name has exactly one valid string
+representation), guaranteeing all implementations produce
+the same MsgID. The hex encoding of the MsgID in JSON uses
+lowercase hexadecimal characters.
 
 ## Example Message
 
