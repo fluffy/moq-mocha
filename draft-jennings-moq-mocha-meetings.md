@@ -523,23 +523,95 @@ SUBSCRIBE_OK response includes the current live edge (the
 latest Group ID being published), which the subscriber uses
 to determine where to begin playback.
 
-For video tracks, the subscriber has two options:
+For video tracks, the subscriber chooses between two
+strategies based on how far into the current group the
+publisher has progressed:
 
-1. Joining FETCH: The subscriber issues a FETCH request for
-   the most recent complete group (the latest keyframe). The
-   relay delivers the cached keyframe group from its cache,
-   allowing immediate video rendering while live media
-   continues to arrive.
+1. FETCH from current group: If the publisher is not too
+   far into the current group (i.e., few objects have been
+   published since the last keyframe), the subscriber
+   issues a FETCH request starting from the beginning of
+   the current group (Object 0). The relay delivers the
+   keyframe and subsequent frames from its cache, allowing
+   the subscriber to catch up quickly and join the live
+   stream mid-GOP.
 
-2. New Group Request: The subscriber can request that the
-   publisher generate a new keyframe (new group) via a
-   REQUEST_UPDATE with a group request. This triggers the
-   publisher to emit a fresh keyframe, providing a clean
-   start point at the cost of slightly higher latency.
+2. DYNAMIC_GROUPS: If the publisher is deep into the
+   current group (many frames since the last keyframe),
+   fetching from the beginning would require downloading
+   a large backlog. Instead, the subscriber sends a
+   DYNAMIC_GROUPS to the publisher, which triggers the
+   publisher to end the current group and start a new one
+   with a fresh keyframe. The subscriber then receives
+   the new keyframe immediately as live media.
 
-The live edge information from SUBSCRIBE_OK allows the
-subscriber to calculate how far behind it is and choose
-the appropriate catch-up strategy.
+The live edge information from SUBSCRIBE_OK (the current
+Group ID and Object ID) allows the subscriber to determine
+how far into the current group the publisher is and choose
+the appropriate strategy.
+
+~~~
+  Case 1: FETCH (publisher early in current group)
+
+  Subscriber                  Relay                Publisher
+    |                           |                      |
+    |  SUBSCRIBE video track    |                      |
+    |-------------------------->|                      |
+    |                           |                      |
+    |  SUBSCRIBE_OK             |                      |
+    |  (live edge: G=5, O=2)   |                      |
+    |<--------------------------|                      |
+    |                           |                      |
+    |  Decision: O=2, only 2    |                      |
+    |  frames in, FETCH is fast |                      |
+    |                           |                      |
+    |  FETCH (G=5, O=0)        |                      |
+    |-------------------------->|                      |
+    |                           |                      |
+    |  Object G=5/O=0 (I-frame)|                      |
+    |<--------------------------|                      |
+    |  Object G=5/O=1 (P-frame)|                      |
+    |<--------------------------|                      |
+    |  Object G=5/O=2 (P-frame)|  (live continues)    |
+    |<--------------------------|<---------------------|
+    |                           |                      |
+    |  (now in sync, receives   |                      |
+    |   live objects G=5/O=3...) |                      |
+    |<--------------------------|<---------------------|
+    |                           |                      |
+
+  Case 2: DYNAMIC_GROUPS (publisher deep in current group)
+
+  Subscriber                  Relay                Publisher
+    |                           |                      |
+    |  SUBSCRIBE video track    |                      |
+    |-------------------------->|                      |
+    |                           |                      |
+    |  SUBSCRIBE_OK             |                      |
+    |  (live edge: G=5, O=47)  |                      |
+    |<--------------------------|                      |
+    |                           |                      |
+    |  Decision: O=47, too far  |                      |
+    |  to fetch from O=0       |                      |
+    |                           |                      |
+    |  DYNAMIC_GROUPS        |                      |
+    |-------------------------->|--------------------->|
+    |                           |                      |
+    |                           |  Publisher ends G=5  |
+    |                           |  Starts G=6 with    |
+    |                           |  fresh keyframe     |
+    |                           |<---------------------|
+    |                           |                      |
+    |  Object G=6/O=0 (I-frame)|                      |
+    |<--------------------------|                      |
+    |  Object G=6/O=1 (P-frame)|                      |
+    |<--------------------------|<---------------------|
+    |                           |                      |
+    |  (in sync from fresh      |                      |
+    |   keyframe, minimal delay)|                      |
+    |<--------------------------|<---------------------|
+    |                           |                      |
+~~~
 
 ## Leaving a Meeting
 
