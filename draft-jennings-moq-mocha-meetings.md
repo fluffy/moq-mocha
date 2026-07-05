@@ -39,6 +39,7 @@ normative:
   MOCHA: I-D.draft-jennings-moq-mocha
   MOCHA-ARCH: I-D.draft-jennings-moq-mocha-arch
   MOCHA-CHAT: I-D.draft-jennings-moq-mocha-chat
+  MOCHA-IDENTITY: I-D.draft-jennings-moq-mocha-identity
   MSF: I-D.draft-ietf-moq-msf
   LOC: I-D.draft-ietf-moq-loc
   SecureObjects: I-D.draft-jennings-moq-secure-objects
@@ -106,6 +107,31 @@ Active Speaker:
 
 # Meeting Namespace {#meeting-namespace}
 
+## Identifier Derivation {#id-derivation}
+
+Both the ClientID and DevID used in namespace tuples and
+track names are derived using HMAC with a shared secret K
+between the client and the provider. The clientID is the
+identifier for the client participant obtained out of band,
+and "||" denotes concatenation. See {{MOCHA-IDENTITY}} for
+details on how the shared secret is established.
+
+The ClientID is computed as:
+
+~~~
+  ClientID = HMAC(K, <namespace-tuple-without-ClientID> ||
+                  clientID)
+~~~
+
+The DevID is computed as:
+
+~~~
+  DevID = HMAC(K, <namespace-tuple-with-ClientID> || devID)
+~~~
+
+where devID is the device identifier used as the device
+identity in the MoQ track.
+
 ## Media Namespace
 
 The media namespace groups all real-time audio and video tracks
@@ -118,7 +144,7 @@ Media tracks for a meeting use the following namespace tuple:
 
 ~~~
   ("mocha_v1", <Provider>, <OrgID>, "media",
-   <TeamID>, <ChannelID>, <MeetingID>)
+   <TeamID>, <ChannelID>, <MeetingID>, <ClientID>)
 ~~~
 
 For example, a meeting in the "standup" channel of team
@@ -126,7 +152,8 @@ For example, a meeting in the "standup" channel of team
 
 ~~~
   ("mocha_v1", "example.com", "acme", "media",
-   "engineering", "standup", "meeting-2024-05-15-1600")
+   "engineering", "standup", "meeting-2024-05-15-1600",
+   <ClientID>)
 ~~~
 
 ## Media Track Names
@@ -147,16 +174,19 @@ Video tracks:
   video-<RenditionID>-<DevID>
 ~~~
 
+ClientID and DevID are derived per {{id-derivation}}.
+
 For example, if Alice's device has DevID "alice-laptop-1"
 and publishes two video renditions:
 
 ~~~
   Namespace: ("mocha_v1", "example.com", "acme", "media",
-              "engineering", "standup", "meeting-2024-05-15-1600")
+              "engineering", "standup", "meeting-2024-05-15-1600",
+              <ClientID>)
 
-  Track: audio-opus48k-alice-laptop-1
-  Track: video-720p-alice-laptop-1
-  Track: video-360p-alice-laptop-1
+  Track: audio-opus48k-<DevID>
+  Track: video-720p-<DevID>
+  Track: video-360p-<DevID>
 ~~~
 
 The RenditionID values used in track names (e.g., "opus48k",
@@ -179,8 +209,10 @@ Catalog tracks use a separate namespace tuple:
 
 ~~~
   ("mocha_v1", <Provider>, <OrgID>, "catalog",
-   <TeamID>, <ChannelID>, <MeetingID>)
+   <TeamID>, <ChannelID>, <MeetingID>, <ClientID>)
 ~~~
+
+ClientID and DevID are derived per {{id-derivation}}.
 
 ## Catalog Track Names
 
@@ -195,8 +227,9 @@ For example:
 
 ~~~
   Namespace: ("mocha_v1", "example.com", "acme", "catalog",
-              "engineering", "standup", "meeting-2024-05-15-1600")
-  Track: catalog-alice-laptop-1
+              "engineering", "standup", "meeting-2024-05-15-1600",
+              <ClientID>)
+  Track: catalog-<DevID>
 ~~~
 
 # Media Track Design {#media-design}

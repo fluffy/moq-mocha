@@ -38,6 +38,7 @@ normative:
   MoQTransport: I-D.draft-ietf-moq-transport
   MOCHA: I-D.draft-jennings-moq-mocha
   MOCHA-ARCH: I-D.draft-jennings-moq-mocha-arch
+  MOCHA-IDENTITY: I-D.draft-jennings-moq-mocha-identity
   JSON: RFC8259
 
   RFC1952:
@@ -118,13 +119,39 @@ MsgID:
 
 # MoQ Chat Naming {#chat-naming}
 
+## Identifier Derivation {#id-derivation}
+
+Both the ClientID and DevID used in namespace tuples and
+track names are derived using HMAC with a shared secret K
+between the client and the provider. The clientID is the
+identifier for the client participant obtained out of band,
+and "||" denotes concatenation. See {{MOCHA-IDENTITY}} for
+details on how the shared secret is established.
+
+The ClientID is computed as:
+
+~~~
+  ClientID = HMAC(K, <namespace-tuple-without-ClientID> ||
+                  clientID)
+~~~
+
+The DevID is computed as:
+
+~~~
+  DevID = HMAC(K, <namespace-tuple-with-ClientID> || devID)
+~~~
+
+where devID is the device identifier used as the device
+identity in the MoQ track.
+
 ## Channel Namespace
 
 The MOQT tracks that carry chat messages use a namespace
 tuple with the following fields:
 
 ~~~
-  ("mocha_v1", <Provider>, <OrgID>, "chat", <TeamID>, <ChannelID>)
+  ("mocha_v1", <Provider>, <OrgID>, "chat", <TeamID>,
+   <ChannelID>, <ClientID>)
 ~~~
 
 For example, messages in the "general" channel of team
@@ -132,7 +159,8 @@ For example, messages in the "general" channel of team
 "example.com":
 
 ~~~
-  ("mocha_v1", "example.com", "acme", "chat", "engineering", "general")
+  ("mocha_v1", "example.com", "acme", "chat", "engineering",
+   "general", <ClientID>)
 ~~~
 
 ## Track Names
@@ -144,12 +172,12 @@ channel namespace. The track name is a single byte sequence:
   msg_v1_<DevID>
 ~~~
 
-For example, if Alice's device has DevID "alice-laptop-1":
+For example:
 
 ~~~
   Namespace: ("mocha_v1", "example.com", "acme", "chat",
-              "engineering", "general")
-  Track Name: "msg_v1_alice-laptop-1"
+              "engineering", "general", <ClientID>)
+  Track Name: "msg_v1_<DevID>"
 ~~~
 
 This per-device track design allows each device to publish
@@ -598,13 +626,17 @@ to build the set of message tracks they should follow.
 The roster tracks for a channel use the namespace tuple:
 
 ~~~
-  ("mocha_v1", <Provider>, <OrgID>, "roster", <TeamID>, <ChannelID>)
+  ("mocha_v1", <Provider>, <OrgID>, "roster", <TeamID>,
+   <ChannelID>, <ClientID>)
 ~~~
+
+ClientID and DevID are derived per {{id-derivation}}.
 
 For example:
 
 ~~~
-  ("mocha_v1", "example.com", "acme", "roster", "engineering", "general")
+  ("mocha_v1", "example.com", "acme", "roster", "engineering",
+   "general", <ClientID>)
 ~~~
 
 ## Roster Track Names
@@ -619,8 +651,8 @@ For example:
 
 ~~~
   Namespace: ("mocha_v1", "example.com", "acme", "roster",
-              "engineering", "general")
-  Track Name: "user_alice-laptop-1"
+              "engineering", "general", <ClientID>)
+  Track Name: "user_<DevID>"
 ~~~
 
 ## Roster Object Format
