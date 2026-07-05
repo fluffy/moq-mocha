@@ -75,7 +75,6 @@ architecture, covering:
 
 - Identity Provider (IdP) authentication (OIDC, guest, future methods)
 - Token issuance via C4M {{C4M}} for identified access with DPoP binding
-- Token issuance via Privacy Pass {{PrivacyPassAuth}} for anonymous access
 - Role-to-scope mapping for the MOCHA namespace hierarchy
 - Federated identity exchange across Providers
 - Token refresh and revocation
@@ -94,41 +93,66 @@ Identity Provider (IdP):
   Examples include OIDC-compliant providers, enterprise SSO, and
   self-hosted identity services. The IdP answers "who is this user?"
 
-Token Service:
+Provider Token Service:
 : The MOCHA component that validates identity assertions from IdPs,
-  determines user permissions, and issues authorization tokens
-  (C4M or Privacy Pass) for relay access.
+  determines user permissions, and issues access tokens
+  (C4M) for relay access.
 
-Token Issuer (PP-Issuer):
-: The Privacy Pass token issuer. Signs blinded token requests so
-  that tokens cannot be linked back to the requesting user.
+Access Tokens: A C4M (CAT for MOQT) CWT (CBOR Web Token) that encodes a
+  user's identity and MOQT namespace permissions. Defined in
+  {{C4M}}. When used in Mocha, the token includes a DPoP confirmation
+  claim (`cnf`) binding it to the client's key.
 
-Attester:
-: A trusted entity (typically the Token Service) that vouches for
-  a client's eligibility to the PP-Issuer without revealing the
-  client's identity.
-
-C4M (CAT for MOQT):
-: A CWT (CBOR Web Token) that encodes a user's identity and MOQT
-  namespace permissions. Defined in {{C4M}}. The token includes a
-  DPoP confirmation claim (`cnf`) binding it to the client's key.
+ID Token: : An OIDC (OpenID Connect) token that provides the
+  authenticated identity of the user.
 
 DPoP (Demonstrating Proof of Possession):
 : A mechanism that binds a C4M token to the client's asymmetric
   key pair. The client generates a fresh DPoP proof for each MOQT
   action, preventing token theft and replay. See {{dpop}}.
 
-AUTHORIZATION Parameter:
+Authorization Parameter:
 : The MOQT parameter that carries authentication credentials. It
   can appear in CLIENT_SETUP, SUBSCRIBE, SUBSCRIBE_NAMESPACE,
   PUBLISH, PUBLISH_NAMESPACE, and FETCH messages.
 
 Relay:
-: Validates authorization tokens and enforces access control for
+: Validates access tokens and enforces access control for
   MOQT operations. Relays do not authenticate users directly;
   they trust tokens signed by known issuers.
 
 # Architecture Overview
+
+The client does a normal OpenID SSO login flow to authenticate to the
+Provider Token Service to get an ID Token and an Access Token with DPoP.
+
+For each Org at the Provider, the Provider keeps tracks of:
+* all of the users in the Org
+* for each users in its Org, all of their devices
+* all the teams in its Org,
+* for each team, all of  users (in the Org or other Providers/Orgs) and their roles,
+* for each team, all of its channels,
+* for each of the channels, its users (in this Org or other Providers/Orgs) and their roles,
+* for each of the channels, all of the meetings
+
+TODO: Add  support for  federation
+
+The Provider Token Service takes an ID Token and generates Access
+Token(s) with the required scopes for Relays for all the Mocha
+services. The Provider Token Service coordiates with the CDNs providing
+the Relays so the relays can validate the Access Tokens.
+
+The exact scopes needed for Access Tokens are defined in the
+specifications that define the Mocha service.
+
+Clients use the Access Tokens when sending requests to the Relays.
+
+
+A Client that is acting as User on a different provider can also ask for
+Access Tokens for this resources in this Provider. This allows federated
+actions where a Client on Provider A can participated in meetings or
+channels that are owned by an Org on Provier B.
+
 
 ~~~
                    MOCHA Identity Architecture
@@ -141,7 +165,7 @@ Relay:
        v                                               v
   +----+-----+     (2) AUTHORIZATION param     +------+------+
   |  Client  |  -----------------------------> |    Relay    |
-  | (Device) |   (C4M + DPoP, or PP token)     | (Validates) |
+  | (Device) |   (C4M + DPoP )                 | (Validates) |
   +----+-----+                                 +------+------+
        |                                               |
        | (1) authenticate + request token              |
@@ -368,7 +392,7 @@ continuous authorization, and batch token encoding are defined in
 # Roles and Token Scopes {#roles}
 
 Roles (Owner, Moderator, Participant, Observer) are defined in
-{{MOCHA-ARCH}} and assigned at the Provider, Organization, Team,
+{{MOCHA-ARCH}} and assigned at the  Organization, Team,
 and Channel levels. The permissions associated with each role
 (publish, subscribe, moderation, management) are application
 policy specified in {{MOCHA-ARCH}}.
