@@ -39,6 +39,7 @@ normative:
   MOCHA: I-D.draft-jennings-moq-mocha
   MOCHA-ARCH: I-D.draft-jennings-moq-mocha-arch
   MOCHA-CHAT: I-D.draft-jennings-moq-mocha-chat
+  MOCHA-IDENTITY: I-D.draft-jennings-moq-mocha-identity
   JSON: RFC8259
 
 
@@ -67,10 +68,7 @@ Channel-Level Reactions:
 : Standalone engagement signals (applause, raised hands)
   directed at the channel as a whole.
 
-Both modes use the same track structure. For large-scale
-scenarios, MOQT relay filtering (top-N track selection,
-property-based object filtering) allows subscribers to
-receive a manageable subset of the reaction stream.
+Both modes use the same track structure.
 
 
 # Conventions and Definitions
@@ -87,8 +85,23 @@ identifiers (MsgID) are defined in {{MOCHA-CHAT}}.
 ## Reactions Namespace
 
 ~~~
-  ("mocha_v1", <Provider>, <OrgID>, "reactions", <TeamID>, <ChannelID>)
+  ("mocha_v1", <Provider>, <OrgID>, "reactions", <TeamID>,
+   <ChannelID>, <ClientID>)
 ~~~
+
+The ClientID is computed as:
+
+~~~
+  ClientID = HMAC(K, "mocha_v1" || <Provider> || <OrgID> ||
+                  "reactions" || <TeamID> || <ChannelID> ||
+                  clientID)
+~~~
+
+where K is a shared secret between the client and the
+provider, clientID is the identifier for the client
+participant in the channel obtained out of band, and "||"
+denotes concatenation. See {{MOCHA-IDENTITY}} for details
+on how the shared secret is established.
 
 ## Track Names
 
@@ -97,6 +110,18 @@ Each device publishes reactions on its own track:
 ~~~
   react_v1_<DevID>
 ~~~
+
+The DevID is computed as:
+
+~~~
+  DevID = HMAC(K, "mocha_v1" || <Provider> || <OrgID> ||
+               "reactions" || <TeamID> || <ChannelID> ||
+               <ClientID> || devID)
+~~~
+
+where K is the same shared secret used for ClientID
+derivation and devID is the device identifier used as the
+device identity in the MoQ track.
 
 ## Object Semantics
 
@@ -113,24 +138,58 @@ Reactions are encoded as JSON {{JSON}} and compressed per
 the MOCHA_COMPRESSION track property defined in
 {{MOCHA-CHAT}}.
 
-## Object and Track Properties {#reaction-properties}
+## Reaction Structure
 
-Object Properties (set per reaction object):
+~~~json
+{
+  "type": 1,
+  "value": "thumbs-up",
+  "ts": 1715788800000,
+  "sender": {
+    "userId": "alice@acme.example.com",
+    "devId": "alice-laptop-1"
+  },
+  "target": {
+    "msgId": "a1b2c3...f0a1b2"
+  },
+  "ext": {}
+}
+~~~
 
-REACTION_TYPE (Property Type TBD1):
-: Integer reaction type (1=emoji, 2=vote, 3=raise,
-  4=applause, 5=custom). Enables category filtering.
+## Fields
 
-REACTION_VALUE (Property Type TBD2):
-: Integer encoding of the specific value within its type
-  (e.g., fire=4, raise=1). Enables value-level filtering.
-  Encodings defined in {{value-encoding}}.
+type (REQUIRED):
+: Integer reaction type. See {{reaction-types}}.
 
-Track Property (set per reaction track):
+value (REQUIRED):
+: String identifying the specific reaction (e.g.,
+  "thumbs-up", "fire", "raise").
 
-REACTION_ACTIVITY (Property Type TBD3):
-: Activity level, updated with each published object.
-  Enables top-N track selection at the relay.
+ts (REQUIRED):
+: Creation time in milliseconds since Unix epoch.
+
+sender (REQUIRED):
+: Object with userId and devId fields.
+
+target (OPTIONAL):
+: Object with msgId field (hex-encoded MsgID per
+  {{MOCHA-CHAT}}). Present for message-targeted reactions;
+  absent for channel-level reactions. {#target-field}
+
+ext (OPTIONAL):
+: Extension fields. Implementations MUST ignore unknown keys.
+
+## Reaction Types {#reaction-types}
+
+| Value | Name     | Description                              |
+|:===== |:======== |:======================================== |
+| 1     | emoji    | Emoji reaction (heart, fire, thumbs-up)  |
+| 2     | vote     | Poll or vote response                    |
+| 3     | raise    | Raise/lower hand                         |
+| 4     | applause | Applause or cheer                        |
+| 5     | custom   | Application-defined reaction             |
+
+Extensible via IANA registry.
 
 ## Reaction Value Encoding {#value-encoding}
 
@@ -164,60 +223,6 @@ Raise (type 3):
 Vote (type 2) and Applause (type 4) value encodings are
 application-defined.
 
-## Reaction Structure
-
-~~~json
-{
-  "type": 1,
-  "value": "thumbs-up",
-  "ts": 1715788800000,
-  "sender": {
-    "userId": "alice@acme.example.com",
-    "devId": "alice-laptop-1"
-  },
-  "target": {
-    "msgId": "a1b2c3...f0a1b2"
-  },
-  "ext": {}
-}
-~~~
-
-### Fields
-
-type (REQUIRED):
-: Integer reaction type. See {{reaction-types}}.
-
-value (REQUIRED):
-: String identifying the specific reaction (e.g.,
-  "thumbs-up", "fire", "raise").
-
-ts (REQUIRED):
-: Creation time in milliseconds since Unix epoch.
-
-sender (REQUIRED):
-: Object with userId and devId fields.
-
-target (OPTIONAL):
-: Object with msgId field (hex-encoded MsgID per
-  {{MOCHA-CHAT}}). Present for message-targeted reactions;
-  absent for channel-level reactions. {#target-field}
-
-ext (OPTIONAL):
-: Extension fields. Implementations MUST ignore unknown keys.
-
-### Reaction Types {#reaction-types}
-
-| Value | Name     | Description                              |
-|:===== |:======== |:======================================== |
-| 1     | emoji    | Emoji reaction (heart, fire, thumbs-up)  |
-| 2     | vote     | Poll or vote response                    |
-| 3     | raise    | Raise/lower hand                         |
-| 4     | applause | Applause or cheer                        |
-| 5     | custom   | Application-defined reaction             |
-
-Extensible via IANA registry. Value encodings per type are
-defined in {{value-encoding}}.
-
 ## Reaction Removal
 
 To retract a reaction, a device publishes an object with the
@@ -228,9 +233,7 @@ receiver removes the matching reaction from display.
 # Sending Reactions {#sending}
 
 To send a reaction, a device publishes a MOQT object to its
-track within the reactions namespace, setting REACTION_TYPE
-and REACTION_VALUE object properties and updating the
-REACTION_ACTIVITY track property.
+track within the reactions namespace.
 
 ~~~
   Alice                     Relay
@@ -281,99 +284,6 @@ Clients MAY use Joining FETCH to retrieve recent reaction
 groups for message-targeted reaction counts. Channel-level
 historical signals MAY be ignored.
 
-
-# Relay Filtering for Large-Scale Reactions {#relay-filtering}
-
-For large-scale scenarios, subscribers use MOQT subscription
-filters to receive a manageable subset of the reaction stream.
-
-## Selecting the Most Active Reactors
-
-A presenter subscribes to the reactions namespace with a
-Track Filter on REACTION_ACTIVITY, requesting the top-N
-most active tracks. The relay dynamically promotes and
-demotes tracks as activity shifts.
-
-~~~
-  Presenter                    Relay                 Publishers
-    |                            |                       |
-    |  SUBSCRIBE_NAMESPACE       |                       |
-    |  Prefix: ("mocha_v1",...   |                       |
-    |    "reactions","eng","gen")|                       |
-    |  Track Filter:             |                       |
-    |    Property=REACTION_ACTIVITY
-    |    MaxTracks=N             |                       |
-    |--------------------------->|                       |
-    |                            |                       |
-    |                            |    Objects arrive from
-    |                            |    1000s of publishers
-    |                            |<----------------------|
-    |                            |                       |
-    |                            |  (Relay ranks tracks  |
-    |                            |   by REACTION_ACTIVITY|
-    |                            |   selects top-N)      |
-    |                            |                       |
-    |  PUBLISH (track promoted)  |                       |
-    |  react_v1_user-042         |                       |
-    |<---------------------------|                       |
-    |                            |                       |
-    |  Objects from top-N tracks |                       |
-    |<---------------------------|                       |
-    |                            |                       |
-    |  (Activity shifts:         |                       |
-    |   user-042 demoted,        |                       |
-    |   user-789 promoted)       |                       |
-    |                            |                       |
-    |  REQUEST_UPDATE Fwd=0      |                       |
-    |  (react_v1_user-042)       |                       |
-    |<---------------------------|                       |
-    |                            |                       |
-    |  PUBLISH (track promoted)  |                       |
-    |  react_v1_user-789         |                       |
-    |<---------------------------|                       |
-    |                            |                       |
-    |  Objects from new top-N    |                       |
-    |<---------------------------|                       |
-    |                            |                       |
-~~~
-
-The presenter client counts reactions locally from the
-filtered stream.
-
-## Subscribe to Track with Object Property Filter
-
-A subscriber can SUBSCRIBE to a reaction track with a
-property filter on REACTION_TYPE or REACTION_VALUE. The
-relay only forwards objects matching the filter.
-
-~~~
-  Moderator                    Relay                 Publisher
-    |                            |                       |
-    |  SUBSCRIBE                 |                       |
-    |  Track: react_v1_user-042  |                       |
-    |  Property Filter:          |                       |
-    |    REACTION_TYPE = 3       |                       |
-    |    (raise-hand only)       |                       |
-    |--------------------------->|                       |
-    |                            |                       |
-    |                            |  Objects arrive:      |
-    |                            |  emoji (type=1)       |
-    |                            |  raise-hand (type=3)  |
-    |                            |  applause (type=4)    |
-    |                            |<----------------------|
-    |                            |                       |
-    |                            |  (Relay filters:      |
-    |                            |   drops type!=3)      |
-    |                            |                       |
-    |  Only raise-hand objects   |                       |
-    |<---------------------------|                       |
-    |                            |                       |
-~~~
-
-These two approaches can be combined: top-N track selection
-on a namespace subscription together with object property
-filters, so the relay selects the most active tracks AND
-only forwards objects matching the specified criteria.
 
 # Security Considerations
 
