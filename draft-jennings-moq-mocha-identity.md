@@ -127,15 +127,15 @@ The client does a normal OpenID SSO login flow to authenticate to the
 Provider Token Service to get an ID Token and an Access Token with DPoP.
 
 For each Org at the Provider, the Provider keeps tracks of:
-* all of the users in this Org
-* for each users in this Org, all of their devices
-* all the teams in this Org,
-* for each team, all of their users (in this Org or other Providers/Orgs) and their role,
-* for each team, all of their channels,
-* for each of the channels, all of their users (in this Org or other Providers/Orgs) and their role,
-* for each of the channels, all of their meetings
+* all of the users in the Org
+* for each users in its Org, all of their devices
+* all the teams in its Org,
+* for each team, all of  users (in the Org or other Providers/Orgs) and their roles,
+* for each team, all of its channels,
+* for each of the channels, its users (in this Org or other Providers/Orgs) and their roles,
+* for each of the channels, all of the meetings
 
-To support federation Users can be on a
+TODO: Add  support for  federation
 
 The Provider Token Service takes an ID Token and generates Access
 Token(s) with the required scopes for Relays for all the Mocha
