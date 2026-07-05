@@ -269,33 +269,12 @@ MOCHA authorization.
 
 After authentication, the client requests a C4M token scoped to
 a specific channel and role. The client provides its public key
-for DPoP binding:
+for DPoP binding. The Token Service validates the session,
+checks membership, determines role permissions, and mints a
+C4M token with a `cnf` claim binding it to the client's key.
 
-~~~
-  Client                              Token Service
-    |                                       |
-    |  POST /token                          |
-    |  Authorization: Bearer <session_token>|
-    |  {                                    |
-    |    "room_id": "engineering",          |
-    |    "role": "participant",             |
-    |    "dpop_jwk": { <client public key> }|
-    |  }                                    |
-    |-------------------------------------->|
-    |                                       |
-    |  (1) Validate session                 |
-    |  (2) Check Team/Channel membership    |
-    |  (3) Determine role permissions       |
-    |  (4) Mint C4M token with cnf claim    |
-    |      binding to client's key          |
-    |                                       |
-    |  200 OK                               |
-    |  { "token": "<base64 CWT>",           |
-    |    "expires_at": 1749903600 }         |
-    |<--------------------------------------|
-    |                                       |
-~~~
-{: #fig-c4m-issue title="C4M Token Issuance"}
+The complete HTTP issuance flow is specified in
+{{http-issuance}}.
 
 The Token Service maps the user's role and channel membership
 to `moq_scopes` within the C4M token. The scopes use the MOCHA
@@ -565,19 +544,75 @@ expired, and maps the home roles to local permissions according
 to its federation policy. The remote Provider MAY downgrade
 roles (e.g., a home "moderator" becomes a remote "participant").
 
-# Token Refresh and Revocation {#refresh}
+# Token Service {#token-service}
+
+The Token Service is the MOCHA component responsible for
+minting, refreshing, and revoking C4M access tokens.
+
+The Token Service interacts with other components via two
+mechanisms:
+
+HTTP API:
+: Clients call the Token Service HTTP endpoint to mint
+  initial C4M tokens (before a MOQT session exists).
+  See {{http-issuance}}.
+
+MOQT Tracks:
+: The Token Service publishes on MOQT tracks that relays
+  and clients subscribe to:
+
+  - Per-client refresh track: delivers rotated tokens to
+    each client. See {{refresh}}.
+  - Revocation track: notifies relays and clients of
+    revoked tokens. See {{revocation}}.
+
+## HTTP Token Issuance {#http-issuance}
+
+Before establishing a MOQT session, a client obtains a C4M
+token from the Token Service via its HTTP API. The client
+presents its session credentials (obtained after IdP
+authentication per {{idp-auth}}) along with its DPoP public
+key:
+
+~~~
+  Client                              Token Service
+    |                                       |
+    |  POST /token                          |
+    |  Authorization: Bearer <session_token>|
+    |  {                                    |
+    |    "org_id": "acme",                  |
+    |    "team_id": "engineering",          |
+    |    "channel_id": "general",           |
+    |    "role": "participant",             |
+    |    "dpop_jwk": { <client public key> }|
+    |  }                                    |
+    |-------------------------------------->|
+    |                                       |
+    |  (1) Validate session                 |
+    |  (2) Check membership and role        |
+    |  (3) Mint C4M token with DPoP binding |
+    |                                       |
+    |  200 OK                               |
+    |  { "token": "<base64 CWT>",           |
+    |    "expires_at": 1749903600 }         |
+    |<--------------------------------------|
+    |                                       |
+~~~
+{: #fig-http-issue title="HTTP Token Issuance"}
+
+The Token Service maps the user's role and channel membership
+to `moq_scopes` within the C4M token per {{roles}}.
+
+## Token Refresh {#refresh}
 
 C4M tokens are intentionally short-lived. To maintain
 continuous access without requiring the client to
 re-authenticate via the IdP, MOCHA provides in-session token
-refresh over MOQT. For immediate access removal (e.g., user
-banned or role changed), relays subscribe to a revocation
-track published by the Token Service.
+refresh over MOQT.
 
-## In-Session Token Refresh
-
-Once a MOQT session is active, token refresh occurs over MOQT
-to avoid HTTP round-trips:
+Once a MOQT session is active, the client subscribes to a
+per-user token refresh track. The Token Service proactively
+publishes a new token before the current one expires:
 
 ~~~
   Client                Relay              Token Service
@@ -599,25 +634,100 @@ to avoid HTTP round-trips:
 ~~~
 {: #fig-refresh title="In-Session Token Refresh"}
 
-## Token Revocation
+The Token Service SHOULD publish the refreshed token at
+approximately 75% of the current token's lifetime, providing
+an overlap window where both the old and new tokens are valid.
 
-For immediate revocation (role change, ban):
+## Token Revocation {#revocation}
+
+For immediate access removal (e.g., user banned, role changed,
+device compromised), the Token Service publishes revocation
+objects to a dedicated revocation track. Both relays and
+clients subscribe to this track.
+
+### Revocation Track
 
 ~~~
-  Token Service publishes to:
-    Namespace: mocha/<provider>/tokens
-    Track: revocations
-
-  Revocation object:
-  {
-    "user_id": "alice@provider.example",
-    "token_id": "<SHA-256 hash of the revoked token>",
-    "revoked_at": 1749901500,
-    "affected_scopes": ["mocha/provider.example/acme/eng/private/*"]
-  }
-
-  Relays subscribed to the revocation track enforce immediately.
+  Namespace: mocha/<provider>/tokens
+  Track: revocations
 ~~~
+
+### Revocation Object Format
+
+Each revocation object carries the SHA-256 hash of the
+revoked token, enabling relays and clients to identify the
+specific token without exposing its contents:
+
+~~~json
+{
+  "token_hash": "<SHA-256 hash of the revoked C4M token>",
+  "revoked_at": 1749901500,
+  "reason": "role_change",
+  "affected_scopes": [
+    "mocha/provider.example/acme/eng/private/*"
+  ]
+}
+~~~
+
+### Revocation Fields
+
+token_hash (REQUIRED):
+: SHA-256 hash of the C4M token being revoked, hex-encoded.
+  Relays and clients match this against hashes of tokens
+  they hold or have validated.
+
+revoked_at (REQUIRED):
+: Revocation time in seconds since Unix epoch.
+
+reason (OPTIONAL):
+: Human-readable reason for the revocation (e.g.,
+  "role_change", "ban", "device_compromised").
+
+affected_scopes (OPTIONAL):
+: List of namespace scope patterns affected by this
+  revocation, for informational purposes.
+
+### Relay Enforcement
+
+Relays MUST subscribe to the revocation track of each Token
+Service whose tokens they accept. Upon receiving a revocation
+object, the relay:
+
+1. Computes the SHA-256 hash of each active token it has
+   validated for the affected session(s).
+2. If a match is found, immediately terminates any SUBSCRIBE
+   or PUBLISH operations authorized by that token.
+3. Caches the token_hash for the remainder of the token's
+   original validity period to reject any late-arriving
+   requests using the revoked token.
+
+### Client Behavior
+
+Clients SHOULD also subscribe to the revocation track. Upon
+receiving a revocation matching a token they hold, clients
+MUST stop using that token and request a new one via HTTP
+({{http-issuance}}) or await a refresh on their token track.
+
+~~~
+  Token Service          Relay              Client
+    |                     |                   |
+    |  PUBLISH revocation |                   |
+    |  (token_hash=0xab..) |                  |
+    |-------------------->|                   |
+    |                     |                   |
+    |                     | (match found:     |
+    |                     |  terminate session)|
+    |                     |                   |
+    |                     | OBJECT: revocation|
+    |                     |------------------>|
+    |                     |                   |
+    |                     |                   | (stop using
+    |                     |                   |  revoked token,
+    |                     |                   |  request new one)
+    |                     |                   |
+~~~
+{: #fig-revocation title="Token Revocation Flow"}
+
 
 # Service Discovery {#discovery}
 

@@ -43,4 +43,7 @@ Form a meeting and messaging system for users across a set of federated provider
 
 All infomation between Devices for Channels and Meetings is echanged over a network of MoQ relays.  Each Device also subscribes for information about it's configureation includding from it's Provider. 
 
+## Persistence Service
+
+The Persistence Service provides durable storage for MOCHA data beyond the lifetime of relay caches. It stores token revocation records, user roles and membership state, chat message history, channel metadata, and meeting recordings. The Persistence Service participates in MOQT as both a subscriber (ingesting live data from channel namespaces and the Token Service revocation track) and a publisher (serving historical data to clients and relays via FETCH requests that exceed relay cache retention).
 
