@@ -292,6 +292,7 @@ Fields use short keys for compact JSON encoding.
     "body": "<message text>"
   },
   "prev": ["<hex-encoded MsgID>", ...],
+  "replaces": "<hex-encoded MsgID>",
   "expires": 0,
   "ext": {}
 }
@@ -325,6 +326,11 @@ prev (REQUIRED):
   message(s) in the channel. This forms a causal ordering
   DAG across all tracks in the channel. An empty array
   indicates no known predecessors. See {{causal-ordering}}.
+
+replaces (OPTIONAL):
+: The hex-encoded MsgID of a prior message that this message
+  edits or deletes. Present when type is 2 (edit) or
+  3 (delete). See {{message-edit-delete}}.
 
 expires (OPTIONAL):
 : Expiration time in milliseconds since the Unix epoch. If
@@ -377,9 +383,11 @@ or display a placeholder indicating an unsupported format.
 |:===== |:====== |:==================================== |
 | 0     | none   | System or control message (no body)  |
 | 1     | text   | Text message                         |
+| 2     | edit   | Replaces content of a prior message  |
+| 3     | delete | Removes a prior message from display |
 
 The type enum is extensible. Future specifications define
-additional values for media, reactions, and other content.
+additional values for media and other content.
 
 ## MsgID Computation {#msg-id-computation}
 
@@ -506,6 +514,80 @@ A simple linearization algorithm:
    by timestamp.
 3. For identical timestamps, sort by MsgID (lexicographic
    on the hash bytes) for deterministic ordering.
+
+# Message Edit and Delete {#message-edit-delete}
+
+A sender can edit or delete a message it previously published
+by publishing a new object on the same track with the
+`replaces` field set to the MsgID of the original message.
+
+## Edit (type 2)
+
+An edit message replaces the content of a prior message.
+The `content` field carries the new text. The original
+message's position in the causal DAG is preserved; the edit
+object itself also participates in the DAG via its own `prev`
+field.
+
+~~~json
+{
+  "msgId": "b2c3d4...",
+  "type": 2,
+  "ts": 1715788900000,
+  "sender": {
+    "userId": "alice@acme.example.com",
+    "displayName": "Alice Smith",
+    "devId": "alice-laptop-1"
+  },
+  "content": {
+    "type": "text/plain",
+    "body": "Hello everyone, ready for standup? (corrected)"
+  },
+  "prev": ["a1b2c3..."],
+  "replaces": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"
+}
+~~~
+
+## Delete (type 3)
+
+A delete message removes a prior message from display. No
+`content` field is required; if present it is ignored.
+
+~~~json
+{
+  "msgId": "c3d4e5...",
+  "type": 3,
+  "ts": 1715789000000,
+  "sender": {
+    "userId": "alice@acme.example.com",
+    "displayName": "Alice Smith",
+    "devId": "alice-laptop-1"
+  },
+  "prev": ["b2c3d4..."],
+  "replaces": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"
+}
+~~~
+
+## Processing Rules
+
+1. Only the original sender (matching userId) MAY edit or
+   delete a message. Receivers MUST ignore edit or delete
+   objects from a different userId than the original message.
+
+2. Multiple edits to the same message are permitted. The
+   edit with the latest causal ordering (per
+   {{causal-ordering}}) takes precedence.
+
+3. A delete after an edit takes precedence: the message is
+   removed from display regardless of prior edits.
+
+4. Receivers SHOULD display an indicator that a message has
+   been edited. Receivers MAY offer access to the edit
+   history.
+
+5. Relays forward edit and delete objects like any other
+   message object without interpreting their semantics.
+
 
 # Sending Messages {#sending}
 
