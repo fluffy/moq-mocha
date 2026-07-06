@@ -659,8 +659,8 @@ publisher.
 ## Self-Suppression
 
 Relays MUST NOT deliver a participant's own media back to
-them. The relay uses the HDevID in track names to suppress
-self-delivery.
+them. The relay supresses self-delivery based on
+FullTrackName and Track alias.
 
 ## Track Filtering
 
@@ -671,61 +671,7 @@ locally.
 
 # Security Considerations
 
-## Transport Security
-
-All media delivery MUST use TLS 1.3 via QUIC or
-WebTransport, providing hop-by-hop encryption between
-participants and relays.
-
-## Authorization
-
-Devices MUST be authorized before publishing or subscribing
-to meeting tracks. A device MUST hold a valid authorization
-token granting access to the meeting namespace before
-participating. Authorization is enforced at the relay as
-specified in {{MOCHA}}.
-
-## Media Integrity
-
-Participants SHOULD verify that the HDevID in received media
-track names matches the catalog information for the
-publishing device.
-
-## End-to-End Encryption {#e2ee}
-
-Without end-to-end encryption, relays can observe media
-content. Deployments requiring confidentiality MUST use
-MoQ Secure Objects {{SecureObjects}} for end-to-end
-encryption of media payloads.
-
-### Secure Objects for Media
-
-When E2EE is enabled, each media object's payload is
-encrypted using MoQ Secure Objects {{SecureObjects}}. The
-LOC container headers remain unencrypted, allowing relays
-to route and cache content based on track metadata without
-accessing the media payload. The encryption scheme and
-key material are signaled in the MSF catalog using the
-SecureObjects catalog fields.
-
-### Key Management
-
-Key distribution for meeting E2EE is managed through the
-mechanisms defined in {{MOCHA}}. Each meeting participant
-holds the current encryption key, and key rotation occurs
-when participants join or leave to maintain forward secrecy.
-
-### Relay Transparency
-
-With Secure Objects enabled, relays can still perform:
-
-* Fan-out delivery based on track namespace and name
-* Caching of encrypted groups for late join
-* Top-N track filtering based on unencrypted object
-  properties (audio_level)
-* Self-suppression based on HDevID in track names
-
-Relays cannot decrypt or inspect media content.
+TODO
 
 # IANA Considerations
 
@@ -733,102 +679,7 @@ This document has no IANA actions.
 
 --- back
 
-# Example: Complete Meeting Namespace
-
-A complete namespace example for a 3-person standup meeting:
-
-~~~
-  Catalog namespace:
-    ("mocha_v1", "example.com", "acme", "catalog",
-     "engineering", "standup", "meeting-2024-05-15-1600")
-
-    Track: catalog-alice-laptop-1
-    Track: catalog-bob-desktop-1
-    Track: catalog-carol-phone-1
-
-  Media namespace:
-    ("mocha_v1", "example.com", "acme", "media",
-     "engineering", "standup", "meeting-2024-05-15-1600")
-
-    Track: audio-opus48k-alice-laptop-1
-    Track: video-720p-alice-laptop-1
-    Track: video-360p-alice-laptop-1
-
-    Track: audio-opus48k-bob-desktop-1
-    Track: video-720p-bob-desktop-1
-
-    Track: audio-opus48k-carol-phone-1
-    Track: video-360p-carol-phone-1
-~~~
-
-# Example: Meeting Join and Active Speaker Flow
-
-A walkthrough of Alice joining a meeting where Bob is
-already present, followed by an active speaker switch:
-
-~~~
-  Time   Alice                 Relay                 Bob
-   |
-  t0     Connect to relay      .                     Publishing:
-         |                     |                     audio + video
-         |                     |                     + catalog
-   |
-  t1     SUBSCRIBE_NAMESPACE   |
-         (catalog ns)          |
-         |------------------->|
-         |                     |
-         |  NAMESPACE:         |
-         |  catalog-bob-desktop-1
-         |<-------------------|
-   |
-  t2     SUBSCRIBE             |
-         catalog-bob-desktop-1 |
-         |------------------->|
-         |                     |
-         | Catalog: Bob has    |
-         | audio-opus48k, video-720p
-         |<-------------------|
-   |
-  t3     SUBSCRIBE_TRACKS      |
-         (media ns, Top-4      |
-          by audio_level)      |
-         |------------------->|
-         |                     |
-         | PUBLISH:            |
-         | audio-opus48k-bob-desktop-1
-         | video-720p-bob-desktop-1
-         |<-------------------|
-         |                     |
-         | Cached keyframe +   |
-         | live media          |
-         |<-------------------|
-   |
-  t4     PUBLISH               |
-         audio-opus48k-alice-laptop-1
-         video-720p-alice-laptop-1
-         catalog-alice-laptop-1|
-         |------------------->|
-         |                     |  NAMESPACE:
-         |                     |  catalog-alice-laptop-1
-         |                     |-------------------->|
-         |                     |                     |
-         |                     |  Bob's SUBSCRIBE_TRACKS
-         |                     |  promotes Alice     |
-         |                     |-------------------->|
-   |
-  t5     Bidirectional media flows
-         |<==================>|<===================>|
-   |
-  t6     Alice starts speaking loudly
-         audio_level: 110      |
-         |------------------->|  Relay updates
-         |                     |  top-N ranking
-   |
-  t7     (Bob's client shows Alice as active speaker)
-~~~
-
 # Acknowledgments
 {:numbered="false"}
 
-Thanks to the MoQ working group for developing the MOQT
-protocol that enables this work.
+TODO
