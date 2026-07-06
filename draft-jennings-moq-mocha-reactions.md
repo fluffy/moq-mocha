@@ -123,8 +123,8 @@ the MOCHA_COMPRESSION track property defined in
   "value": "thumbs-up",
   "ts": 1715788800000,
   "sender": {
-    "userId": "alice@acme.example.com",
-    "devId": "alice-laptop-1"
+    "userId": "<obtained via credential, see MOCHA-IDENTITY>",
+    "devId": "<obtained via credential, see MOCHA-IDENTITY>"
   },
   "target": {
     "msgId": "a1b2c3...f0a1b2"
@@ -243,12 +243,6 @@ then subscribes to the announced tracks.
    applause indicator).
 2. For raise-hand: maintain a queue until "lower" is received.
 
-## Late Join
-
-Clients MAY use Joining FETCH to retrieve recent reaction
-groups for message-targeted reaction counts. Standalone
-historical signals MAY be ignored.
-
 
 # Security Considerations
 
@@ -263,5 +257,4 @@ TODO
 # Acknowledgments
 {:numbered="false"}
 
-The authors thank the IETF MoQ working group for the
-foundational work on Media over QUIC Transport.
+TODO
