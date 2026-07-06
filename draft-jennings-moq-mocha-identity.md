@@ -89,9 +89,9 @@ Provider, Organization, Team, Channel, Device, and DevID.
 The following identifiers are defined in this document:
 
 HClientID:
-: A hashed client identifier derived via HMAC. Used in
-  namespace tuples and track names instead of the raw
-  clientID. See {{id-derivation}}.
+: A hashed user identifier derived via HMAC from the
+  user's DID. Used in namespace tuples and track names
+  instead of the raw DID. See {{id-derivation}}.
 
 HDevID:
 : A hashed device identifier derived via HMAC. Used in
@@ -178,16 +178,17 @@ actions where a Client on Provider A can participated in meetings or
 channels that are owned by an Org on Provier B.
 
 
-# Identifers
+# Identifiers {#identifiers}
 
 Mocha Providers MUST be inditifered by a unique DNS name.
 
-UserIDs are reprsented by a Web DID <TODO ref> that has the constrained form:
-```
-  did:web:<Provider>:<Org>:<User>
-```
+UserIDs are represented by a Web DID that has the constrained form:
 
-In many places, a hashed form of the UserID is used called HUserID. This
+~~~
+  did:web:<Provider>:<Org>:<User>
+~~~
+
+In many places, a hashed form of the UserID is used called HClientID. This
 is hashed in the context of particar Team, Channel, or Meeting and
 includes the full name of the Team, Channel, or Meeting in the hash so
 that IDs can not be correlated across different contexts.
@@ -195,7 +196,7 @@ that IDs can not be correlated across different contexts.
 
 Devices are identified by a DevID that is hash of the public key they
 use for DPoP.  There is a hashed version of DevID, called HDevID, that
-is hasehd like HUserID.
+is hasehd like HClientID.
 
 
 # Identity Provider Authentication {#idp-auth}
@@ -534,6 +535,44 @@ key:
 The Token Service maps the user's role and channel membership
 to `moq_scopes` within the C4M token per {{roles}}.
 
+
+# Identifier Derivation {#id-derivation}
+
+Both the HClientID and HDevID used in namespace tuples and
+track names are derived using HMAC with a shared secret K
+between the client and the provider. The UserID is the
+user's DID (did:web:\<Provider\>:\<Org\>:\<User\>) as defined
+in {{identifiers}}, and "||" denotes concatenation.
+
+The shared secret K is established during the authentication
+flow ({{idp-auth}}) and is unique per client-provider pair.
+
+The HClientID is computed as:
+
+~~~
+  HClientID = HMAC(K, <namespace-tuple-without-HClientID> ||
+                 did:web:<Provider>:<Org>:<User>)
+~~~
+
+The HDevID is computed as:
+
+~~~
+  HDevID = HMAC(K, <namespace-tuple-with-HClientID> || devID)
+~~~
+
+where devID is the hash of the client's DPoP public key
+({{dpop}}), providing a stable per-device identifier tied
+to the cryptographic material.
+
+These derived identifiers ensure that:
+
+- The actual DID and devID are not exposed on the wire
+- Different namespaces produce different HClientID/HDevID
+  values for the same user, preventing cross-namespace
+  correlation by relays
+- Only the client and the provider (who share K) can verify
+  the mapping between the raw identifiers and their hashed
+  forms
 
 # Security Considerations
 
