@@ -50,7 +50,7 @@ informative:
 This document specifies reactions for MOCHA (MoQ Open
 Communication & Hosting Architecture). It supports
 message-targeted reactions (emoji on a specific chat message)
-and channel-level reactions (engagement signals such as
+and standalone reactions (engagement signals such as
 applause or raised hands).
 
 --- middle
@@ -64,7 +64,7 @@ are supported:
 Message-Targeted Reactions:
 : Emoji responses referencing a specific chat message MsgID.
 
-Channel-Level Reactions:
+Standalone Reactions:
 : Standalone engagement signals (applause, raised hands)
   directed at the channel as a whole.
 
@@ -123,8 +123,8 @@ the MOCHA_COMPRESSION track property defined in
   "value": "thumbs-up",
   "ts": 1715788800000,
   "sender": {
-    "userId": "alice@acme.example.com",
-    "devId": "alice-laptop-1"
+    "userId": "<obtained via credential, see MOCHA-IDENTITY>",
+    "devId": "<obtained via credential, see MOCHA-IDENTITY>"
   },
   "target": {
     "msgId": "a1b2c3...f0a1b2"
@@ -151,7 +151,7 @@ sender (REQUIRED):
 target (OPTIONAL):
 : Object with msgId field (hex-encoded MsgID per
   {{MOCHA-CHAT}}). Present for message-targeted reactions;
-  absent for channel-level reactions. {#target-field}
+  absent for standalone reactions. {#target-field}
 
 ext (OPTIONAL):
 : Extension fields. Implementations MUST ignore unknown keys.
@@ -187,6 +187,9 @@ Emoji (type 1):
 | 9       | thinking   |
 | 10      | eyes       |
 
+TODO: The range of emoji values to be supported is not clear
+at this point and further discussion is needed.
+
 Values 11-127 are reserved for future standard emoji.
 Values 128+ are available for application-defined emoji.
 
@@ -212,26 +215,11 @@ receiver removes the matching reaction from display.
 To send a reaction, a device publishes a MOQT object to its
 track within the reactions namespace.
 
-~~~
-  Alice                     Relay
-    |                         |
-    |  PUBLISH object         |
-    |  Namespace: ("mocha_v1", "example.com", "acme",
-    |              "reactions", "engineering", "general")
-    |  Track: react_v1_alice-laptop-1
-    |  [object properties + compressed JSON reaction]
-    |------------------------>|
-    |                         |
-    |                         |  (relay caches and fans out
-    |                         |   to matching subscribers)
-    |                         |
-~~~
-
 ## Rate Limiting
 
 * Message-targeted: At most 1 reaction of a given type per
   message per device (newer replaces older).
-* Channel-level: At most 1 reaction per second per device.
+* Standalone: At most 1 reaction per second per device.
 
 Relays MAY enforce rate limits and drop excess objects.
 
@@ -249,17 +237,11 @@ then subscribes to the announced tracks.
 3. Same sender + same type + same target: newer replaces older.
 4. If remove=true, remove the matching reaction.
 
-## Processing Channel-Level Reactions
+## Processing Standalone Reactions
 
 1. Display as a transient signal (e.g., floating emoji,
    applause indicator).
 2. For raise-hand: maintain a queue until "lower" is received.
-
-## Late Join
-
-Clients MAY use Joining FETCH to retrieve recent reaction
-groups for message-targeted reaction counts. Channel-level
-historical signals MAY be ignored.
 
 
 # Security Considerations
@@ -275,5 +257,4 @@ TODO
 # Acknowledgments
 {:numbered="false"}
 
-The authors thank the IETF MoQ working group for the
-foundational work on Media over QUIC Transport.
+TODO
