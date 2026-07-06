@@ -81,9 +81,10 @@ meetings to scale efficiently.
 
 This document uses terminology and architecture defined in
 {{MOCHA-ARCH}}, including Provider, Organization, Team,
-Channel, Device, and DevID. The MOQT transport primitives
+Channel, and Device. The MOQT transport primitives
 (Track, Group, Object, Namespace, Relay) are defined in
-{{MoQTransport}}.
+{{MoQTransport}}. HClientID and HDevID are defined in
+{{MOCHA-IDENTITY}}.
 
 The following additional terms are used:
 
@@ -109,28 +110,9 @@ Active Speaker:
 
 ## Identifier Derivation {#id-derivation}
 
-Both the ClientID and DevID used in namespace tuples and
-track names are derived using HMAC with a shared secret K
-between the client and the provider. The clientID is the
-identifier for the client participant obtained out of band,
-and "||" denotes concatenation. See {{MOCHA-IDENTITY}} for
-details on how the shared secret is established.
-
-The ClientID is computed as:
-
-~~~
-  ClientID = HMAC(K, <namespace-tuple-without-ClientID> ||
-                  clientID)
-~~~
-
-The DevID is computed as:
-
-~~~
-  DevID = HMAC(K, <namespace-tuple-with-ClientID> || devID)
-~~~
-
-where devID is the device identifier used as the device
-identity in the MoQ track.
+The HClientID and HDevID used in namespace tuples and
+track names are derived per {{MOCHA-IDENTITY}},
+Section "Identifier Derivation".
 
 ## Media Namespace
 
@@ -144,7 +126,7 @@ Media tracks for a meeting use the following namespace tuple:
 
 ~~~
   ("mocha_v1", <Provider>, <OrgID>, "media",
-   <TeamID>, <ChannelID>, <MeetingID>, <ClientID>)
+   <TeamID>, <ChannelID>, <MeetingID>, <HClientID>)
 ~~~
 
 For example, a meeting in the "standup" channel of team
@@ -153,7 +135,7 @@ For example, a meeting in the "standup" channel of team
 ~~~
   ("mocha_v1", "example.com", "acme", "media",
    "engineering", "standup", "meeting-2024-05-15-1600",
-   <ClientID>)
+   <HClientID>)
 ~~~
 
 ## Media Track Names
@@ -165,28 +147,28 @@ and device identity:
 Audio tracks:
 
 ~~~
-  audio-<RenditionID>-<DevID>
+  audio-<RenditionID>-<HDevID>
 ~~~
 
 Video tracks:
 
 ~~~
-  video-<RenditionID>-<DevID>
+  video-<RenditionID>-<HDevID>
 ~~~
 
-ClientID and DevID are derived per {{id-derivation}}.
+HClientID and HDevID are derived per {{id-derivation}}.
 
-For example, if Alice's device has DevID "alice-laptop-1"
+For example, if Alice's device has HDevID "alice-laptop-1"
 and publishes two video renditions:
 
 ~~~
   Namespace: ("mocha_v1", "example.com", "acme", "media",
               "engineering", "standup", "meeting-2024-05-15-1600",
-              <ClientID>)
+              <HClientID>)
 
-  Track: audio-opus48k-<DevID>
-  Track: video-720p-<DevID>
-  Track: video-360p-<DevID>
+  Track: audio-opus48k-<HDevID>
+  Track: video-720p-<HDevID>
+  Track: video-360p-<HDevID>
 ~~~
 
 The RenditionID values used in track names (e.g., "opus48k",
@@ -209,10 +191,10 @@ Catalog tracks use a separate namespace tuple:
 
 ~~~
   ("mocha_v1", <Provider>, <OrgID>, "catalog",
-   <TeamID>, <ChannelID>, <MeetingID>, <ClientID>)
+   <TeamID>, <ChannelID>, <MeetingID>, <HClientID>)
 ~~~
 
-ClientID and DevID are derived per {{id-derivation}}.
+HClientID and HDevID are derived per {{id-derivation}}.
 
 ## Catalog Track Names
 
@@ -220,7 +202,7 @@ Each device publishes a catalog describing its available
 renditions:
 
 ~~~
-  catalog-<DevID>
+  catalog-<HDevID>
 ~~~
 
 For example:
@@ -228,8 +210,8 @@ For example:
 ~~~
   Namespace: ("mocha_v1", "example.com", "acme", "catalog",
               "engineering", "standup", "meeting-2024-05-15-1600",
-              <ClientID>)
-  Track: catalog-<DevID>
+              <HClientID>)
+  Track: catalog-<HDevID>
 ~~~
 
 # Media Track Design {#media-design}
@@ -677,7 +659,7 @@ publisher.
 ## Self-Suppression
 
 Relays MUST NOT deliver a participant's own media back to
-them. The relay uses the DevID in track names to suppress
+them. The relay uses the HDevID in track names to suppress
 self-delivery.
 
 ## Track Filtering
@@ -705,7 +687,7 @@ specified in {{MOCHA}}.
 
 ## Media Integrity
 
-Participants SHOULD verify that the DevID in received media
+Participants SHOULD verify that the HDevID in received media
 track names matches the catalog information for the
 publishing device.
 
@@ -741,7 +723,7 @@ With Secure Objects enabled, relays can still perform:
 * Caching of encrypted groups for late join
 * Top-N track filtering based on unencrypted object
   properties (audio_level)
-* Self-suppression based on DevID in track names
+* Self-suppression based on HDevID in track names
 
 Relays cannot decrypt or inspect media content.
 

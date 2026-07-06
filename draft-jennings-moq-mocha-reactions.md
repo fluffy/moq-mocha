@@ -86,42 +86,19 @@ identifiers (MsgID) are defined in {{MOCHA-CHAT}}.
 
 ~~~
   ("mocha_v1", <Provider>, <OrgID>, "reactions", <TeamID>,
-   <ChannelID>, <ClientID>)
+   <ChannelID>, <HClientID>)
 ~~~
 
-The ClientID is computed as:
-
-~~~
-  ClientID = HMAC(K, "mocha_v1" || <Provider> || <OrgID> ||
-                  "reactions" || <TeamID> || <ChannelID> ||
-                  clientID)
-~~~
-
-where K is a shared secret between the client and the
-provider, clientID is the identifier for the client
-participant in the channel obtained out of band, and "||"
-denotes concatenation. See {{MOCHA-IDENTITY}} for details
-on how the shared secret is established.
+HClientID and HDevID are derived per {{MOCHA-IDENTITY}},
+Section "Identifier Derivation".
 
 ## Track Names
 
 Each device publishes reactions on its own track:
 
 ~~~
-  react_v1_<DevID>
+  react_v1_<HDevID>
 ~~~
-
-The DevID is computed as:
-
-~~~
-  DevID = HMAC(K, "mocha_v1" || <Provider> || <OrgID> ||
-               "reactions" || <TeamID> || <ChannelID> ||
-               <ClientID> || devID)
-~~~
-
-where K is the same shared secret used for ClientID
-derivation and devID is the device identifier used as the
-device identity in the MoQ track.
 
 ## Object Semantics
 

@@ -72,7 +72,8 @@ This document specifies:
 See BCP 14 {{!RFC2119}} {{!RFC8174}}.
 
 This document uses terminology defined in {{MOCHA-ARCH}},
-including Provider, Organization, UserID, Device, and DevID.
+including Provider, Organization, UserID, and Device.
+HDevID is defined in {{MOCHA-IDENTITY}}.
 
 The following additional terms are used:
 
@@ -109,10 +110,10 @@ Where:
 Each device publishes its address book updates on its own track:
 
 ~~~
-  Track Name: ("msg", <DevID>)
+  Track Name: ("msg", <HDevID>)
 ~~~
 
-Where `DevID` identifies the publishing device. Each device
+Where `HDevID` identifies the publishing device. Each device
 maintains its own track to avoid write conflicts between
 devices.
 
@@ -230,7 +231,7 @@ other devices.
 When multiple devices publish conflicting operations (e.g.,
 both update the same contact), the operation with the latest
 timestamp wins. If timestamps are equal, the operation from
-the lexicographically greater DevID takes precedence.
+the lexicographically greater HDevID takes precedence.
 
 ## Initial Sync
 

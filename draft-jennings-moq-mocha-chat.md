@@ -88,9 +88,10 @@ See BCP 14 {{!RFC2119}} {{!RFC8174}}.
 
 This document uses terminology and architecture defined in
 {{MOCHA-ARCH}}, including Provider, Organization, Team, Channel,
-Device, DevID, GroupID, and ObjectID. The MOQT transport
+Device, GroupID, and ObjectID. The MOQT transport
 primitives (Track, Group, Object, Namespace, Relay) are defined
-in {{MoQTransport}}.
+in {{MoQTransport}}. HClientID and HDevID are defined in
+{{MOCHA-IDENTITY}}.
 
 The following additional terms are used:
 
@@ -107,11 +108,6 @@ TeamID:
 ChannelID:
 : An identifier for a specific channel within a team.
 
-DevID:
-: A unique identifier for a publishing device. Each device that
-  can send messages has its own DevID and publishes on its own
-  track.
-
 MsgID:
 : A globally unique identifier for a message, formed by hashing
   the full track name concatenated with the Group ID and
@@ -121,28 +117,9 @@ MsgID:
 
 ## Identifier Derivation {#id-derivation}
 
-Both the ClientID and DevID used in namespace tuples and
-track names are derived using HMAC with a shared secret K
-between the client and the provider. The clientID is the
-identifier for the client participant obtained out of band,
-and "||" denotes concatenation. See {{MOCHA-IDENTITY}} for
-details on how the shared secret is established.
-
-The ClientID is computed as:
-
-~~~
-  ClientID = HMAC(K, <namespace-tuple-without-ClientID> ||
-                  clientID)
-~~~
-
-The DevID is computed as:
-
-~~~
-  DevID = HMAC(K, <namespace-tuple-with-ClientID> || devID)
-~~~
-
-where devID is the device identifier used as the device
-identity in the MoQ track.
+The HClientID and HDevID used in namespace tuples and
+track names are derived per {{MOCHA-IDENTITY}},
+Section "Identifier Derivation".
 
 ## Channel Namespace
 
@@ -151,7 +128,7 @@ tuple with the following fields:
 
 ~~~
   ("mocha_v1", <Provider>, <OrgID>, "chat", <TeamID>,
-   <ChannelID>, <ClientID>)
+   <ChannelID>, <HClientID>)
 ~~~
 
 For example, messages in the "general" channel of team
@@ -160,7 +137,7 @@ For example, messages in the "general" channel of team
 
 ~~~
   ("mocha_v1", "example.com", "acme", "chat", "engineering",
-   "general", <ClientID>)
+   "general", <HClientID>)
 ~~~
 
 ## Track Names
@@ -169,15 +146,15 @@ Each device publishes messages on its own track within the
 channel namespace. The track name is a single byte sequence:
 
 ~~~
-  msg_v1_<DevID>
+  msg_v1_<HDevID>
 ~~~
 
 For example:
 
 ~~~
   Namespace: ("mocha_v1", "example.com", "acme", "chat",
-              "engineering", "general", <ClientID>)
-  Track Name: "msg_v1_<DevID>"
+              "engineering", "general", <HClientID>)
+  Track Name: "msg_v1_<HDevID>"
 ~~~
 
 This per-device track design allows each device to publish
@@ -363,7 +340,7 @@ displayName (REQUIRED):
 
 devId (REQUIRED):
 : The identifier of the publishing device. MUST match
-  the DevID in the track name from which the message
+  the HDevID in the track name from which the message
   is published.
 
 ### Content Structure {#content-structure}
@@ -606,7 +583,7 @@ threading is not supported.
 ## Thread Replies
 
 To reply within a thread, a device publishes a message on
-its regular `msg_v1_<DevID>` track with the `threadId` field
+its regular `msg_v1_<HDevID>` track with the `threadId` field
 set to the MsgID of the root message that started the
 thread. The root message itself has no `threadId` field.
 
@@ -744,16 +721,16 @@ The roster tracks for a channel use the namespace tuple:
 
 ~~~
   ("mocha_v1", <Provider>, <OrgID>, "roster", <TeamID>,
-   <ChannelID>, <ClientID>)
+   <ChannelID>, <HClientID>)
 ~~~
 
-ClientID and DevID are derived per {{id-derivation}}.
+HClientID and HDevID are derived per {{id-derivation}}.
 
 For example:
 
 ~~~
   ("mocha_v1", "example.com", "acme", "roster", "engineering",
-   "general", <ClientID>)
+   "general", <HClientID>)
 ~~~
 
 ## Roster Track Names
@@ -761,15 +738,15 @@ For example:
 Each device publishes its user information on a track:
 
 ~~~
-  user_<DevID>
+  user_<HDevID>
 ~~~
 
 For example:
 
 ~~~
   Namespace: ("mocha_v1", "example.com", "acme", "roster",
-              "engineering", "general", <ClientID>)
-  Track Name: "user_<DevID>"
+              "engineering", "general", <HClientID>)
+  Track Name: "user_<HDevID>"
 ~~~
 
 ## Roster Object Format
@@ -792,7 +769,7 @@ a user in the identity system:
 
 Participants subscribe to the roster namespace to discover
 which devices are active in a channel. The roster provides
-the set of msg_v1_\<DevID\> tracks that should be subscribed
+the set of msg_v1_\<HDevID\> tracks that should be subscribed
 for receiving channel messages.
 
 When a new device joins a channel, it publishes a roster
@@ -828,7 +805,7 @@ Each device (or server) that creates or manages channels
 publishes channel information on a track:
 
 ~~~
-  channel_<DevID>
+  channel_<HDevID>
 ~~~
 
 For example:
@@ -908,20 +885,20 @@ Presence tracks for a channel use the namespace tuple:
 
 ~~~
   ("mocha_v1", <Provider>, <OrgID>, "presence", <TeamID>,
-   <ChannelID>, <ClientID>)
+   <ChannelID>, <HClientID>)
 ~~~
 
-ClientID is derived per {{id-derivation}}.
+HClientID is derived per {{id-derivation}}.
 
 ## Presence Track Names
 
 Each device publishes its presence on a dedicated track:
 
 ~~~
-  presence_v1_<DevID>
+  presence_v1_<HDevID>
 ~~~
 
-DevID is derived per {{id-derivation}}.
+HDevID is derived per {{id-derivation}}.
 
 ## Presence States
 
@@ -972,7 +949,7 @@ a channel. They use the same presence namespace with a
 separate track:
 
 ~~~
-  typing_v1_<DevID>
+  typing_v1_<HDevID>
 ~~~
 
 ### Typing Object Format
