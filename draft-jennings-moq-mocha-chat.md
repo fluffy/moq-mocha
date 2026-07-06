@@ -3,7 +3,7 @@ title: "MOCHA Chat: Messaging over MoQ Transport"
 abbrev: "mocha-chat"
 category: std
 
-docname: draft-jennings-moq-mocha-chat-latest
+docname: draft-jennings-moq-mocha-chat-00
 submissiontype: IETF
 number:
 date:
