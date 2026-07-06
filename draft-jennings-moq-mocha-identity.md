@@ -59,8 +59,8 @@ informative:
 This document specifies identity, authentication, authorization,
 and federation for MOCHA (MoQ Open Communication & Hosting
 Architecture). It defines how users authenticate with Identity
-Providers (IdPs), how authorization tokens (C4M and Privacy Pass)
-are issued and validated at relays, how permissions map to MOQT
+Providers (IdPs), how acess tokens
+are issued, how permissions map to MOQT
 namespaces, and how users from one Provider obtain access to
 resources on a federated Provider.
 
@@ -89,9 +89,9 @@ Provider, Organization, Team, Channel, Device, and DevID.
 The following identifiers are defined in this document:
 
 HClientID:
-: A hashed client identifier derived via HMAC. Used in
-  namespace tuples and track names instead of the raw
-  clientID. See {{id-derivation}}.
+: A hashed user identifier derived via HMAC from the
+  user's DID. Used in namespace tuples and track names
+  instead of the raw DID. See {{id-derivation}}.
 
 HDevID:
 : A hashed device identifier derived via HMAC. Used in
@@ -109,8 +109,8 @@ Provider Token Service:
   determines user permissions, and issues access tokens
   (C4M) for relay access.
 
-Access Tokens: A C4M (CAT for MOQT) CWT (CBOR Web Token) that encodes a
-  user's identity and MOQT namespace permissions. Defined in
+Access Tokens: A C4M (CAT for MOQT)) that encodes a
+  user's  MOQT namespace permissions. Defined in
   {{C4M}}. When used in Mocha, the token includes a DPoP confirmation
   claim (`cnf`) binding it to the client's key.
 
@@ -138,15 +138,21 @@ The client does a normal OpenID SSO login flow to authenticate to the
 Provider Token Service to get an ID Token and an Access Token with DPoP.
 
 For each Org at the Provider, the Provider keeps tracks of:
-* all of the users in the Org
-* for each users in its Org, all of their devices
-* all the teams in its Org,
-* for each team, all of  users (in the Org or other Providers/Orgs) and their roles,
-* for each team, all of its channels,
-* for each of the channels, its users (in this Org or other Providers/Orgs) and their roles,
-* for each of the channels, all of the meetings
 
-TODO: Add  support for  federation
+* all of the users in the Org,
+
+* for each users in its Org, all of their devices,
+
+* all the teams in its Org,
+
+* for each team, all of  users (in the Org or other Providers/Orgs) and their roles,
+
+* for each team, all of its channels,
+
+* for each of the channels, its users (in this Org or other Providers/Orgs) and their roles,
+
+* for each of the channels, all of the meetings.
+
 
 The Provider Token Service takes an ID Token and generates Access
 Token(s) with the required scopes for Relays for all the Mocha
@@ -154,10 +160,17 @@ services. The Provider Token Service coordiates with the CDNs providing
 the Relays so the relays can validate the Access Tokens.
 
 The exact scopes needed for Access Tokens are defined in the
-specifications that define the Mocha service.
+specifications that define the Mocha service. The Client will have a
+seperate Access Token for each of:
 
-Clients use the Access Tokens when sending requests to the Relays.
+* team the User is part of,
 
+* channel they can access,
+
+* meeting they can access. 
+
+
+Clients use the aproperate Access Token(s) when sending requests to the Relays.
 
 A Client that is acting as User on a different provider can also ask for
 Access Tokens for this resources in this Provider. This allows federated
@@ -165,41 +178,32 @@ actions where a Client on Provider A can participated in meetings or
 channels that are owned by an Org on Provier B.
 
 
-~~~
-                   MOCHA Identity Architecture
+# Identifiers {#identifiers}
 
-  +----------+                                    +----------+
-  |   IdP    |  (OIDC, Enterprise SSO, etc.)      | PP-Issuer|
-  +----+-----+                                    +----+-----+
-       |                                               |
-       | ID Token                          blind sign  |
-       v                                               v
-  +----+-----+     (2) AUTHORIZATION param     +------+------+
-  |  Client  |  -----------------------------> |    Relay    |
-  | (Device) |   (C4M + DPoP )                 | (Validates) |
-  +----+-----+                                 +------+------+
-       |                                               |
-       | (1) authenticate + request token              |
-       v                                               |
-  +----+-----------------------------------------+     |
-  |            Token Service                     |     |
-  |  - Validates IdP assertions                  |     |
-  |  - Checks membership/permissions             |     |
-  |  - Mints C4M tokens with DPoP binding        |     |
-  |  - Proxies PP blind token requests           |     |
-  +----------------------------------------------+     |
-                                                       |
-            (3) SUBSCRIBE / PUBLISH granted            |
-            <------------------------------------------+
+Mocha Providers MUST be inditifered by a unique DNS name.
+
+UserIDs are represented by a Web DID that has the constrained form:
+
 ~~~
-{: #fig-arch title="Identity Architecture"}
+  did:web:<Provider>:<Org>:<User>
+~~~
+
+In many places, a hashed form of the UserID is used called HClientID. This
+is hashed in the context of particar Team, Channel, or Meeting and
+includes the full name of the Team, Channel, or Meeting in the hash so
+that IDs can not be correlated across different contexts.
+
+
+Devices are identified by a DevID that is hash of the public key they
+use for DPoP.  There is a hashed version of DevID, called HDevID, that
+is hasehd like HClientID.
+
 
 # Identity Provider Authentication {#idp-auth}
 
-## Overview
 
 Before obtaining authorization tokens, a user must authenticate
-with an Identity Provider. MOCHA supports pluggable IdPs. The
+with an Identity Provider. The
 Token Service validates the IdP assertion and establishes a
 session.
 
@@ -213,7 +217,7 @@ session.
     |   native sign-in)        |                        |
     |------------------------->|                        |
     |                          |                        |
-    |  (2) ID Token (JWT)      |                        |
+    |  (2) ID Token            |                        |
     |<-------------------------|                        |
     |                          |                        |
     |  (3) POST /auth/oidc     |                        |
@@ -239,32 +243,8 @@ session.
 The Token Service MUST validate the ID Token per {{OIDC}}
 Section 3.1.3.7 (issuer, audience, expiry, signature via JWKS).
 
-## Guest Authentication
-
-For deployments allowing pseudonymous access:
-
-~~~
-  Client                             Token Service
-    |                                      |
-    |  POST /auth/guest                    |
-    |  { "display_name": "Alice" }         |
-    |------------------------------------->|
-    |                                      |
-    |  200 OK                              |
-    |  { "user_id": "guest-7a3f",          |
-    |    "session_token": "s_..." }        |
-    |<-------------------------------------|
-    |                                      |
-~~~
-{: #fig-guest title="Guest Authentication"}
-
-Guest users receive a server-assigned pseudonymous identity.
-Guest sessions MAY have reduced permissions compared to
-authenticated users.
 
 # C4M Token Issuance and Validation {#c4m}
-
-## Overview
 
 C4M (CAT for MOQT) {{C4M}} is the primary authorization mechanism
 for identified access. MOCHA deployments MUST use DPoP
@@ -279,7 +259,7 @@ MOCHA authorization.
 ## Token Request {#dpop}
 
 After authentication, the client requests a C4M token scoped to
-a specific channel and role. The client provides its public key
+a specific team, channel, meeting and role. The client provides its public key
 for DPoP binding. The Token Service validates the session,
 checks membership, determines role permissions, and mints a
 C4M token with a `cnf` claim binding it to the client's key.
@@ -325,65 +305,11 @@ channel:
   Result: PERMITTED (matches subscribe scope)
 ~~~
 
-# Privacy Pass Token Issuance and Validation {#privacy-pass}
-
-## Overview
-
-Privacy Pass {{PrivacyPassAuth}} provides cryptographic
-unlinkability: the relay can verify a token was legitimately
-issued without correlating it to the identity that requested it.
-This enables anonymous participation in channels. Illustrative
-call flows are provided in {{pp-call-flows}}.
-
-For scoped access, Partially Blind RSA tokens carry public
-metadata encoding the permitted MOCHA namespaces without breaking
-unlinkability. The relay uses these extensions for scope
-enforcement identical to C4M tokens, but cannot determine which
-user holds the token.
-
-## MOCHA Token Issuance
-
-Token types, issuance protocol, attester authentication, and
-token wire format are defined in {{PrivacyPassAuth}}. The Token
-Service acts as Attester ({{PrivacyPassAuth}}, Section 3) and
-authenticates to the PP-Issuer using HTTP Message Signatures
-{{RFC9421}}.
-
-In the MOCHA context, the Token Service:
-
-1. Validates the client's session and channel membership (as
-   in the C4M flow).
-
-2. Determines the namespace scope to encode in the token's
-   public metadata (for PBRS tokens).
-
-3. Attests to the PP-Issuer that the client is authorized for
-   the requested scope.
-
-The client presents the resulting token in the AUTHORIZATION
-parameter of any MOQT control message (CLIENT_SETUP, SUBSCRIBE,
-PUBLISH, etc.).
-
-## Reverse Flow {#pp-reverse}
-
-MOCHA deployments MAY use the Privacy Pass reverse flow
-{{PP-REVERSE}} where the relay acts as both attester and issuer.
-The client bootstraps with a publicly verifiable token from an
-external issuer, and the relay responds with privately verifiable
-tokens for subsequent operations.
-
-The reverse flow enables continuous unlinkable authorization
-without requiring an external issuer after the initial bootstrap.
-Token replenishment is piggybacked on normal MOQT control message
-exchanges using batched tokens {{PP-BATCH}}. The bootstrap,
-continuous authorization, and batch token encoding are defined in
-{{PrivacyPassAuth}} (Sections 4-5) and {{PP-REVERSE}} (Section 4).
-
 # Roles and Token Scopes {#roles}
 
-Roles (Owner, Moderator, Participant, Observer) are defined in
-{{MOCHA-ARCH}} and assigned at the  Organization, Team,
-and Channel levels. The permissions associated with each role
+Roles (Owner, Moderator, Participant, Observer)
+are  assigned at the  Organization,
+Team,  Channel and Meetings levels. The permissions associated with each role
 (publish, subscribe, moderation, management) are application
 policy specified in {{MOCHA-ARCH}}.
 
@@ -412,10 +338,8 @@ encodes the corresponding namespace permissions:
 ~~~
 
 The scope patterns follow the MOCHA namespace hierarchy and are
-enforced by the relay per {{C4M}}, Section 2.1. The same scopes
-apply when using Privacy Pass with PBRS tokens — the namespace
-permissions are encoded in the token's public metadata extensions
-(see {{PrivacyPassAuth}}) and enforced identically by the relay.
+enforced by the relay per {{C4M}}, Section 2.1.
+
 
 # Federation {#federation}
 
@@ -456,7 +380,7 @@ key exchange:
       |       signing_key, policies }            |
       |<-----------------------------------------|
       |                                          |
-      | (3) Verify signing_key via DNSSEC/TLS    |
+      | (3) Verify signing_key via TLS           |
       |                                          |
       | (4) Store Provider B's public key        |
       |     in trusted federation peers          |
@@ -477,11 +401,6 @@ GET https://provider-b.example/.well-known/mocha-federation
   "federation_relays": ["moqt://relay.provider-b.example:443"],
   "signing_key": "<Ed25519 public key, base64>",
   "token_exchange_endpoint": "https://auth.provider-b.example/federation/exchange",
-  "policies": {
-    "allow_inbound": true,
-    "allowed_providers": ["*"],
-    "blocked_providers": []
-  }
 }
 ~~~
 
@@ -525,20 +444,20 @@ a token exchange occurs:
     |                |           Provider B's signing key      |
     |                |                      |                  |
     |                | (7) { token: <C4M>, expires_at }        |
-    |                |<--------------------|                  |
+    |                |<---------------------|                  |
     |                |                      |                  |
     | (8) Federated  |                      |                  |
     |  C4M token     |                      |                  |
     |<---------------|                      |                  |
     |                |                      |                  |
-    | (9) CLIENT_SETUP { AUTHORIZATION: <C4M from B> }        |
-    |-------------------------------------------------------->|
+    | (9) CLIENT_SETUP { AUTHORIZATION: <C4M from B> }         |
+    |--------------------------------------------------------->|
     |                |                      |                  |
     |                |                      |  (10) Validate   |
     |                |                      |  with B's key    |
     |                |                      |                  |
-    | (11) SERVER_SETUP                                       |
-    |<--------------------------------------------------------|
+    | (11) SERVER_SETUP                                        |
+    |<---------------------------------------------------------|
     |                |                      |                  |
 ~~~
 {: #fig-fed-exchange title="Federated Token Exchange"}
@@ -573,9 +492,11 @@ MOQT Tracks:
   and clients subscribe to:
 
   - Per-client refresh track: delivers rotated tokens to
-    each client. See {{refresh}}.
+    each client.
   - Revocation track: notifies relays and clients of
-    revoked tokens. See {{revocation}}.
+    revoked tokens.
+
+TODO details 
 
 ## HTTP Token Issuance {#http-issuance}
 
@@ -614,139 +535,14 @@ key:
 The Token Service maps the user's role and channel membership
 to `moq_scopes` within the C4M token per {{roles}}.
 
-## Token Refresh {#refresh}
-
-C4M tokens are intentionally short-lived. To maintain
-continuous access without requiring the client to
-re-authenticate via the IdP, MOCHA provides in-session token
-refresh over MOQT.
-
-Once a MOQT session is active, the client subscribes to a
-per-user token refresh track. The Token Service proactively
-publishes a new token before the current one expires:
-
-~~~
-  Client                Relay              Token Service
-    |                     |                      |
-    | SUBSCRIBE           |                      |
-    | mocha/<provider>/   |                      |
-    |   tokens/<user_id>  |                      |
-    |-------------------->|                      |
-    |                     |--------------------->|
-    |                     |                      |
-    |                     |      (token nearing  |
-    |                     |       expiry)        |
-    |                     |                      |
-    |                     |  OBJECT: new token   |
-    |                     |<---------------------|
-    |  new token          |                      |
-    |<--------------------|                      |
-    |                     |                      |
-~~~
-{: #fig-refresh title="In-Session Token Refresh"}
-
-The Token Service SHOULD publish the refreshed token at
-approximately 75% of the current token's lifetime, providing
-an overlap window where both the old and new tokens are valid.
-
-## Token Revocation {#revocation}
-
-For immediate access removal (e.g., user banned, role changed,
-device compromised), the Token Service publishes revocation
-objects to a dedicated revocation track. Both relays and
-clients subscribe to this track.
-
-### Revocation Track
-
-~~~
-  Namespace: mocha/<provider>/tokens
-  Track: revocations
-~~~
-
-### Revocation Object Format
-
-Each revocation object carries the SHA-256 hash of the
-revoked token, enabling relays and clients to identify the
-specific token without exposing its contents:
-
-~~~json
-{
-  "token_hash": "<SHA-256 hash of the revoked C4M token>",
-  "revoked_at": 1749901500,
-  "reason": "role_change",
-  "affected_scopes": [
-    "mocha/provider.example/acme/eng/private/*"
-  ]
-}
-~~~
-
-### Revocation Fields
-
-token_hash (REQUIRED):
-: SHA-256 hash of the C4M token being revoked, hex-encoded.
-  Relays and clients match this against hashes of tokens
-  they hold or have validated.
-
-revoked_at (REQUIRED):
-: Revocation time in seconds since Unix epoch.
-
-reason (OPTIONAL):
-: Human-readable reason for the revocation (e.g.,
-  "role_change", "ban", "device_compromised").
-
-affected_scopes (OPTIONAL):
-: List of namespace scope patterns affected by this
-  revocation, for informational purposes.
-
-### Relay Enforcement
-
-Relays MUST subscribe to the revocation track of each Token
-Service whose tokens they accept. Upon receiving a revocation
-object, the relay:
-
-1. Computes the SHA-256 hash of each active token it has
-   validated for the affected session(s).
-2. If a match is found, immediately terminates any SUBSCRIBE
-   or PUBLISH operations authorized by that token.
-3. Caches the token_hash for the remainder of the token's
-   original validity period to reject any late-arriving
-   requests using the revoked token.
-
-### Client Behavior
-
-Clients SHOULD also subscribe to the revocation track. Upon
-receiving a revocation matching a token they hold, clients
-MUST stop using that token and request a new one via HTTP
-({{http-issuance}}) or await a refresh on their token track.
-
-~~~
-  Token Service          Relay              Client
-    |                     |                   |
-    |  PUBLISH revocation |                   |
-    |  (token_hash=0xab..) |                  |
-    |-------------------->|                   |
-    |                     |                   |
-    |                     | (match found:     |
-    |                     |  terminate session)|
-    |                     |                   |
-    |                     | OBJECT: revocation|
-    |                     |------------------>|
-    |                     |                   |
-    |                     |                   | (stop using
-    |                     |                   |  revoked token,
-    |                     |                   |  request new one)
-    |                     |                   |
-~~~
-{: #fig-revocation title="Token Revocation Flow"}
-
 
 # Identifier Derivation {#id-derivation}
 
 Both the HClientID and HDevID used in namespace tuples and
 track names are derived using HMAC with a shared secret K
-between the client and the provider. The clientID is the
-identifier for the client participant obtained out of band,
-and "||" denotes concatenation.
+between the client and the provider. The UserID is the
+user's DID (did:web:\<Provider\>:\<Org\>:\<User\>) as defined
+in {{identifiers}}, and "||" denotes concatenation.
 
 The shared secret K is established during the authentication
 flow ({{idp-auth}}) and is unique per client-provider pair.
@@ -755,7 +551,7 @@ The HClientID is computed as:
 
 ~~~
   HClientID = HMAC(K, <namespace-tuple-without-HClientID> ||
-                  clientID)
+                 did:web:<Provider>:<Org>:<User>)
 ~~~
 
 The HDevID is computed as:
@@ -764,25 +560,19 @@ The HDevID is computed as:
   HDevID = HMAC(K, <namespace-tuple-with-HClientID> || devID)
 ~~~
 
-where devID is the device identifier used as the device
-identity in the MoQ track. The devID MAY be the hash of
-the client's public key used for DPoP binding ({{dpop}}),
-providing a stable per-device identifier tied to the
-cryptographic material.
+where devID is the hash of the client's DPoP public key
+({{dpop}}), providing a stable per-device identifier tied
+to the cryptographic material.
 
 These derived identifiers ensure that:
 
-- The actual clientID and devID are not exposed on the wire
+- The actual DID and devID are not exposed on the wire
 - Different namespaces produce different HClientID/HDevID
-  values for the same client, preventing cross-namespace
+  values for the same user, preventing cross-namespace
   correlation by relays
 - Only the client and the provider (who share K) can verify
   the mapping between the raw identifiers and their hashed
   forms
-
-# Service Discovery {#discovery}
-
-TODO
 
 # Security Considerations
 
@@ -794,179 +584,3 @@ This document makes no requests of IANA.
 
 --- back
 
-# Privacy Pass Call Flows {#pp-call-flows}
-
-This appendix illustrates the Privacy Pass flows for MOCHA.
-The normative protocol is defined in {{PrivacyPassAuth}} and
-{{PP-REVERSE}}.
-
-## External Issuer Flow
-
-The client authenticates with the IdP, then obtains a Privacy
-Pass token via the Token Service (Attester) and external
-PP-Issuer, and finally presents it to the relay.
-
-~~~
-  Client          IdP        Token Service       PP-Issuer       Relay
-    |              |          (Attester)              |              |
-    |              |               |                  |              |
-    | (1) Authenticate             |                  |              |
-    |------------->|               |                  |              |
-    |              |               |                  |              |
-    | (2) ID Token |               |                  |              |
-    |<-------------|               |                  |              |
-    |              |               |                  |              |
-    | (3) POST /auth/oidc          |                  |              |
-    |   { ID Token }               |                  |              |
-    |----------------------------->|                  |              |
-    |              |               |                  |              |
-    | (4) session_token            |                  |              |
-    |<-----------------------------|                  |              |
-    |              |               |                  |              |
-    | (5) POST /auth/privacypass/challenge            |              |
-    |   { room_id, token_type }    |                  |              |
-    |----------------------------->|                  |              |
-    |              |               |                  |              |
-    |              |               | (6) Fetch issuer |              |
-    |              |               |     public key   |              |
-    |              |               |----------------->|              |
-    |              |               |<-----------------|              |
-    |              |               |                  |              |
-    | (7) TokenChallenge +         |                  |              |
-    |     issuer_pub_key           |                  |              |
-    |<-----------------------------|                  |              |
-    |              |               |                  |              |
-    | (8) Generate nonce,          |                  |              |
-    |     blind token_input        |                  |              |
-    |              |               |                  |              |
-    | (9) POST /auth/privacypass/token-request        |              |
-    |   { blinded_element }        |                  |              |
-    |----------------------------->|                  |              |
-    |              |               |                  |              |
-    |              |               | (10) Forward     |              |
-    |              |               |   + HTTP sig     |              |
-    |              |               |----------------->|              |
-    |              |               |                  |              |
-    |              |               |  (11) Verify     |              |
-    |              |               |  attester sig,   |              |
-    |              |               |  sign token      |              |
-    |              |               |                  |              |
-    |              |               | (12) blind_sig   |              |
-    |              |               |<-----------------|              |
-    |              |               |                  |              |
-    | (13) blind_signature         |                  |              |
-    |<-----------------------------|                  |              |
-    |              |               |                  |              |
-    | (14) Unblind, assemble       |                  |              |
-    |      final token             |                  |              |
-    |              |               |                  |              |
-    | (15) CLIENT_SETUP { AUTHORIZATION: token }                    |
-    |-------------------------------------------------------------->|
-    |              |               |                  |              |
-    |              |               |                  | (16) Verify  |
-    |              |               |                  | with issuer  |
-    |              |               |                  | public key   |
-    |              |               |                  |              |
-    | (17) SERVER_SETUP (identity unknown to relay)                 |
-    |<--------------------------------------------------------------|
-    |              |               |                  |              |
-~~~
-{: #fig-pp-external title="Privacy Pass External Issuer Flow"}
-
-## Reverse Flow
-
-The reverse flow has three phases: bootstrap, session
-establishment, and continuous authorization with token
-replenishment.
-
-### Step 1: Bootstrap
-
-The client connects without credentials. The relay challenges
-the client, who obtains a publicly verifiable token from an
-external issuer.
-
-~~~
-  Client              PP-Issuer (external)          Relay
-    |                      |                          |
-    | (1) CLIENT_SETUP (no auth)                      |
-    |------------------------------------------------>|
-    |                      |                          |
-    | (2) UNAUTHORIZED { TokenChallenge }             |
-    |<------------------------------------------------|
-    |                      |                          |
-    | (3) Blind token      |                          |
-    |   request            |                          |
-    |--------------------->|                          |
-    |                      |                          |
-    | (4) blind_signature  |                          |
-    |<---------------------|                          |
-    |                      |                          |
-    | (5) Unblind, assemble publicly                  |
-    |     verifiable token (type 0x0002)              |
-    |                      |                          |
-~~~
-{: #fig-pp-rev-step1 title="Reverse Flow Step 1: Bootstrap"}
-
-### Step 2: Token Exchange
-
-The client presents the bootstrap token and requests a batch
-of privately verifiable tokens from the relay (now acting as
-issuer).
-
-~~~
-  Client                                    Relay (Issuer)
-    |                                         |
-    | (1) CLIENT_SETUP {                      |
-    |       AUTHORIZATION: Token (0x0002),    |
-    |       GenericBatchTokenRequest           |
-    |     }                                   |
-    |---------------------------------------->|
-    |                                         |
-    |     (2) Validate bootstrap token        |
-    |     (3) Issue privately verifiable      |
-    |         tokens (type 0x0001/0x0005)     |
-    |                                         |
-    | (4) SERVER_SETUP {                      |
-    |       GenericBatchTokenResponse          |
-    |     }                                   |
-    |<----------------------------------------|
-    |                                         |
-~~~
-{: #fig-pp-rev-step2 title="Reverse Flow Step 2: Token Exchange"}
-
-### Step 3: Continuous Authorization
-
-On each subsequent operation, the client presents a privately
-verifiable token and piggybacks a new batch request. The relay
-validates and replenishes tokens.
-
-~~~
-  Client                                    Relay
-    |                                         |
-    | (1) SUBSCRIBE {                         |
-    |       AUTHORIZATION: PrivateTokenAuth,  |
-    |       GenericBatchTokenRequest           |
-    |     }                                   |
-    |---------------------------------------->|
-    |                                         |
-    |     (2) Validate private token          |
-    |     (3) Issue new batch of tokens       |
-    |                                         |
-    | (4) GenericBatchTokenResponse            |
-    |<----------------------------------------|
-    |                                         |
-    | (5) PUBLISH {                           |
-    |       AUTHORIZATION: PrivateTokenAuth,  |
-    |       GenericBatchTokenRequest           |
-    |     }                                   |
-    |---------------------------------------->|
-    |                                         |
-    |     (6) Validate, issue new batch       |
-    |                                         |
-    | (7) GenericBatchTokenResponse            |
-    |<----------------------------------------|
-    |                                         |
-    |     (continues for session lifetime)    |
-    |                                         |
-~~~
-{: #fig-pp-rev-step3 title="Reverse Flow Step 3: Continuous Authorization"}
