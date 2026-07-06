@@ -39,6 +39,46 @@ Form a meeting and messaging system for users across a set of federated provider
 
 * ObjectID: The 64 bit integer indientifing an MoQ object inside a group. 
 
+# Protocol Layer Cake
+
+MOCHA is designed as a layered protocol stack. Each layer depends on the layers below it:
+
+~~~
+  ┌─────────────────────────────────────────────────────────────┐
+  │  Layer 5: Identity                                          │
+  │  (Provider-assigned identities, E.164 phone numbers,        │
+  │   UserID, DevID, MLSParticipantID)                          │
+  └─────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │  Layer 4: Authorization                                     │
+  │  (C4M tokens, DPoP binding, token revocation,               │
+  │   roles: Owner, Moderator, Participant, Observer)           │
+  └─────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │  Layer 3: Keying & Encryption                               │
+  │  (MLS key management, MoQ Secure Objects,                   │
+  │   per-epoch key derivation, E2EE)                           │
+  └─────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │  Layer 2: Message Format                                    │
+  │  (Chat messages, reactions, meetings media/catalog,         │
+  │   translations, threads, edits/deletes)                     │
+  └─────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+  ┌─────────────────────────────────────────────────────────────┐
+  │  Layer 1: MoQ Transport                                     │
+  │  (MOQT over QUIC/WebTransport, pub/sub, namespaces,         │
+  │   relay caching, fan-out, TLS 1.3 hop-by-hop)              │
+  └─────────────────────────────────────────────────────────────┘
+~~~
+
 # Architecture
 
 All infomation between Devices for Channels and Meetings is echanged over a network of MoQ relays.  Each Device also subscribes for information about it's configureation includding from it's Provider. 
