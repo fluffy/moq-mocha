@@ -859,6 +859,112 @@ the channel info namespace for their team:
     |                         |
 ~~~
 
+# Presence {#presence}
+
+MOCHA provides a presence system for communicating user
+availability and status within a channel. Channel membership
+implicitly grants presence visibility — all channel members
+can see each other's presence without explicit subscription
+consent.
+
+## Presence Namespace
+
+Presence tracks for a channel use the namespace tuple:
+
+~~~
+  ("mocha_v1", <Provider>, <OrgID>, "presence", <TeamID>,
+   <ChannelID>, <ClientID>)
+~~~
+
+ClientID is derived per {{id-derivation}}.
+
+## Presence Track Names
+
+Each device publishes its presence on a dedicated track:
+
+~~~
+  presence_v1_<DevID>
+~~~
+
+DevID is derived per {{id-derivation}}.
+
+## Presence States
+
+| State     | Description                              |
+|-----------|------------------------------------------|
+| online    | User is active and available             |
+| away      | User is idle or stepped away             |
+| dnd       | Do not disturb — suppress notifications  |
+| offline   | User is disconnected                     |
+
+## Presence Object Format
+
+Each object on a presence track contains:
+
+~~~json
+{
+  "status": "online",
+  "status_message": "In meetings until 3pm",
+  "last_active": 1715790000000,
+  "idle_seconds": 0
+}
+~~~
+
+Fields:
+
+- **status**: One of the presence states above.
+- **status_message**: Optional human-readable status text.
+- **last_active**: NTP timestamp (milliseconds) of last
+  user activity.
+- **idle_seconds**: Seconds since last user interaction on
+  this device. Set to 0 when active.
+
+## Presence Updates
+
+A device publishes a new presence object whenever its state
+changes (e.g., user becomes idle, changes status, or goes
+offline). Each new object replaces the previous state.
+
+Devices SHOULD publish a presence object with status
+"offline" when gracefully disconnecting. If a device
+disconnects without publishing an offline status, subscribers
+detect the absence via track inactivity.
+
+## Typing Indicators {#typing-indicators}
+
+Typing indicators are ephemeral presence signals scoped to
+a channel. They use the same presence namespace with a
+separate track:
+
+~~~
+  typing_v1_<DevID>
+~~~
+
+### Typing Object Format
+
+~~~json
+{
+  "is_typing": true,
+  "thread_id": null,
+  "ts": 1715790000000
+}
+~~~
+
+Typing indicators:
+
+- SHOULD be delivered via QUIC datagrams (unreliable) for
+  low latency.
+- SHOULD timeout after 5 seconds without an update.
+- MAY be disabled per-user or per-channel.
+
+## Subscribing to Presence
+
+Participants subscribe (SUBSCRIBE_NAMESPACE) to the presence
+namespace to receive presence and typing updates from all
+channel members. This follows the same pattern as roster
+subscription — joining a channel implicitly subscribes
+the device to presence.
+
 # Delivery Properties {#delivery}
 
 ## Reliability
