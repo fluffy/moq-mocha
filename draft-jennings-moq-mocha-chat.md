@@ -109,11 +109,10 @@ ChannelID:
 : An identifier for a specific channel within a team.
 
 MsgID:
-: A globally unique identifier for a message, formed by hashing
-  the full track name concatenated with the Group ID and
-  Object ID.
+: A globally unique identifier for a message. Implementations
+  SHOULD use a UUID (version 4) to generate MsgIDs.
 
-# MoQ Chat Naming {#chat-naming}
+# MOCHA Chat Naming {#chat-naming}
 
 ## Identifier Derivation {#id-derivation}
 
@@ -281,8 +280,8 @@ The message fields are defined as follows:
 ### Top-Level Fields
 
 msgId (REQUIRED):
-: The globally unique identifier for this message, hex-encoded.
-  Computed as defined in {{msg-id-computation}}.
+: The globally unique identifier for this message within the
+  channel. Implementations SHOULD use a UUID (version 4).
 
 type (REQUIRED):
 : Integer message type. This specification defines type 0
@@ -374,54 +373,6 @@ or display a placeholder indicating an unsupported format.
 The type enum is extensible. Future specifications define
 additional values for media and other content.
 
-## MsgID Computation {#msg-id-computation}
-
-The MsgID for a message is formed by computing the SHA-256
-hash of the concatenation of:
-
-1. The full track name in its canonical serialized form as
-   defined in Section 1.5 of {{MoQTransport}}: namespace
-   fields joined by a single hyphen ("-"), followed by a
-   double hyphen ("--"), followed by the track name. Bytes
-   outside the safe set (a-z, A-Z, 0-9, underscore) are
-   encoded as a period followed by two lowercase hex digits.
-2. The Group ID (encoded as a big-endian 64-bit unsigned integer)
-3. The Object ID (encoded as a big-endian 64-bit unsigned integer)
-
-~~~
-  MsgID = SHA-256(
-    canonical_full_track_name ||
-    big_endian_uint64(group_id) ||
-    big_endian_uint64(object_id)
-  )
-~~~
-
-For example, with namespace tuple ("mocha_v1", "example.com",
-"acme", "chat", "engineering", "general") and track name
-"msg_v1_alice.2dlaptop.2d1":
-
-~~~
-  canonical_full_track_name =
-    "mocha_v1-example.2ecom-acme-chat-engineering-general--msg_v1_alice.2dlaptop.2d1"
-
-  group_id = 29598720
-  object_id = 0
-
-  MsgID = SHA-256(
-    "mocha_v1-example.2ecom-acme-chat-engineering-general--msg_v1_alice.2dlaptop.2d1" ||
-    0x0000000001C3E400 ||
-    0x0000000000000000
-  )
-~~~
-
-This construction ensures MsgIDs are globally unique and
-deterministically computable by any participant that knows
-the track name and position. The canonical serialization is
-bijective (each binary name has exactly one valid string
-representation), guaranteeing all implementations produce
-the same MsgID. The hex encoding of the MsgID in JSON uses
-lowercase hexadecimal characters.
-
 ## Example Message
 
 A text message as JSON (before compression):
@@ -434,7 +385,7 @@ A text message as JSON (before compression):
   "sender": {
     "userId": "alice@acme.example.com",
     "displayName": "Alice Smith",
-    "devId": "alice-laptop-1"
+    "devId": "<HashDevID>"
   },
   "content": {
     "type": "text/plain",
@@ -522,7 +473,7 @@ field.
   "sender": {
     "userId": "alice@acme.example.com",
     "displayName": "Alice Smith",
-    "devId": "alice-laptop-1"
+    "devId": "<HashDevID>"
   },
   "content": {
     "type": "text/plain",
@@ -546,7 +497,7 @@ A delete message removes a prior message from display. No
   "sender": {
     "userId": "alice@acme.example.com",
     "displayName": "Alice Smith",
-    "devId": "alice-laptop-1"
+    "devId": "<HashDevID>"
   },
   "prev": ["b2c3d4..."],
   "replaces": "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2"
@@ -601,117 +552,11 @@ MUST carry the same `threadId` as the message they replace.
 This allows clients to correctly scope the edit or delete
 to the thread view.
 
-# Sending Messages {#sending}
-
-## Publish Flow
-
-To send a message, a device publishes a MOQT object to its
-own track within the channel namespace:
-
-1. Device determines the current Group ID from NTP time
-   in minutes.
-2. Device assigns the next Object ID for this group on its
-   track.
-3. Device computes the MsgID from the track name, group, and
-   object.
-4. Device records the MsgID(s) of the most recent message(s)
-   it has received in this channel as the previous list.
-5. Device constructs the ChatMessage, serializes as JSON,
-   compresses, and publishes as a MOQT object.
-
-~~~
-  Alice                     Relay
-    |                         |
-    |  PUBLISH object         |
-    |  Namespace: ("mocha_v1", "example.com", "acme",
-    |              "chat", "engineering", "general")
-    |  Track: msg_v1_alice-laptop-1
-    |  Group: 29598720        |
-    |  Object: 0              |
-    |  [compressed JSON ChatMessage]
-    |------------------------>|
-    |                         |
-    |                         |  (relay caches and fans out
-    |                         |   to subscribers of this track)
-    |                         |
-~~~
-
-## Authorization
-
-A device MUST hold a valid authorization token granting
-publish access to its track within the channel namespace
-before publishing. Authorization mechanisms are defined
-in {{MOCHA}}.
-
-# Receiving Messages {#receiving}
-
-## Subscribe Flow
-
-To receive messages in a channel, a participant subscribes
-to the message tracks of all active devices in the channel.
-Track discovery is accomplished via the roster (see
-{{roster-naming}}) or SUBSCRIBE_NAMESPACE. Once the
-participant learns the available track names, it issues
-explicit SUBSCRIBE requests for each track of interest:
-
-~~~
-  Bob                       Relay
-    |                         |
-    |  SUBSCRIBE_NAMESPACE    |
-    |  Prefix: ("mocha_v1", "example.com", "acme",
-    |           "chat", "engineering", "general")
-    |------------------------>|
-    |                         |
-    |  (Relay announces matching tracks:)
-    |  msg_v1_alice-laptop-1  |
-    |  msg_v1_carol-phone-1   |
-    |<------------------------|
-    |                         |
-    |  SUBSCRIBE              |
-    |  Track: msg_v1_alice-laptop-1
-    |------------------------>|
-    |                         |
-    |  SUBSCRIBE              |
-    |  Track: msg_v1_carol-phone-1
-    |------------------------>|
-    |                         |
-    |  OBJECTs arrive from    |
-    |  subscribed tracks      |
-    |<------------------------|
-    |                         |
-~~~
-
-Alternatively, if the roster provides full track names,
-a participant can SUBSCRIBE to individual tracks directly
-without using SUBSCRIBE_NAMESPACE.
-
-## Late Join
-
-When a participant subscribes to a channel, it uses MOQT's
-Joining FETCH to retrieve recent groups (minutes) from the
-relay's cache for each device track. This provides message
-history for context.
-
-## Deduplication
-
-Participants MUST deduplicate messages based on MsgID. The
-same message may be received multiple times due to relay
-topology or reconnection.
-
-## Channel Reconstruction
-
-To display a unified channel view, a participant:
-
-1. Receives messages from all device tracks in the channel.
-2. Computes or verifies each message's MsgID.
-3. Builds the causal DAG from the previous fields.
-4. Linearizes messages for display (see {{causal-ordering}}).
-
-# MoQ Roster Naming {#roster-naming}
+# MOCHA Roster Naming {#roster-naming}
 
 The roster provides a discovery mechanism for participants
 to learn which devices are active in a channel. Each device
-publishes its presence and user identity on a dedicated
+publishes its availability and user identity on a dedicated
 roster track. Participants subscribe to the roster namespace
 to build the set of message tracks they should follow.
 
@@ -753,13 +598,15 @@ For example:
 
 Each object on a roster track contains a JSON document
 providing information about the mapping of the device to
-a user in the identity system:
+a user in the identity system. The display_name is obtained
+from the user's PAB entry (see {{MOCHA}}) and the user_id
+is obtained from the identity system (see {{MOCHA-IDENTITY}}).
 
 ~~~json
 {
   "user_id": "alice@acme.example.com",
   "display_name": "Alice Smith",
-  "dev_id": "alice-laptop-1",
+  "dev_id": "<HashDevID>",
   "joined_at": 1715788000000,
   "status": "active"
 }
@@ -845,62 +692,36 @@ of channels available in the team:
 }
 ~~~
 
-## Channel Discovery Flow
+# Availability {#availability}
 
-A participant discovers available channels by subscribing to
-the channel info namespace for their team:
-
-~~~
-  Client                    Relay
-    |                         |
-    |  SUBSCRIBE_NAMESPACE    |
-    |  Prefix: ("mocha_v1", "example.com", "acme",
-    |           "channel_info", "engineering")
-    |------------------------>|
-    |                         |
-    |  (Relay announces channel info tracks)
-    |<------------------------|
-    |                         |
-    |  SUBSCRIBE channel info track
-    |------------------------>|
-    |                         |
-    |  OBJECT: channel list   |
-    |<------------------------|
-    |                         |
-    |  (Client displays available channels to user)
-    |                         |
-~~~
-
-# Presence {#presence}
-
-MOCHA provides a presence system for communicating user
+MOCHA provides an availability system for communicating user
 availability and status within a channel. Channel membership
-implicitly grants presence visibility — all channel members
-can see each other's presence without explicit subscription
+implicitly grants availability visibility — all channel members
+can see each other's availability without explicit subscription
 consent.
 
-## Presence Namespace
+## Availability Namespace
 
-Presence tracks for a channel use the namespace tuple:
+Availability tracks for a channel use the namespace tuple:
 
 ~~~
-  ("mocha_v1", <Provider>, <OrgID>, "presence", <TeamID>,
+  ("mocha_v1", <Provider>, <OrgID>, "availability", <TeamID>,
    <ChannelID>, <HClientID>)
 ~~~
 
 HClientID is derived per {{id-derivation}}.
 
-## Presence Track Names
+## Availability Track Names
 
-Each device publishes its presence on a dedicated track:
+Each device publishes its availability on a dedicated track:
 
 ~~~
-  presence_v1_<HDevID>
+  availability_v1_<HDevID>
 ~~~
 
 HDevID is derived per {{id-derivation}}.
 
-## Presence States
+## Availability States
 
 | State     | Description                              |
 |-----------|------------------------------------------|
@@ -909,9 +730,9 @@ HDevID is derived per {{id-derivation}}.
 | dnd       | Do not disturb — suppress notifications  |
 | offline   | User is disconnected                     |
 
-## Presence Object Format
+## Availability Object Format
 
-Each object on a presence track contains:
+Each object on an availability track contains:
 
 ~~~json
 {
@@ -924,28 +745,28 @@ Each object on a presence track contains:
 
 Fields:
 
-- **status**: One of the presence states above.
+- **status**: One of the availability states above.
 - **status_message**: Optional human-readable status text.
 - **last_active**: NTP timestamp (milliseconds) of last
   user activity.
 - **idle_seconds**: Seconds since last user interaction on
   this device. Set to 0 when active.
 
-## Presence Updates
+## Availability Updates
 
-A device publishes a new presence object whenever its state
+A device publishes a new availability object whenever its state
 changes (e.g., user becomes idle, changes status, or goes
 offline). Each new object replaces the previous state.
 
-Devices SHOULD publish a presence object with status
+Devices SHOULD publish an availability object with status
 "offline" when gracefully disconnecting. If a device
 disconnects without publishing an offline status, subscribers
 detect the absence via track inactivity.
 
 ## Typing Indicators {#typing-indicators}
 
-Typing indicators are ephemeral presence signals scoped to
-a channel. They use the same presence namespace with a
+Typing indicators are ephemeral availability signals scoped to
+a channel. They use the same availability namespace with a
 separate track:
 
 ~~~
@@ -969,63 +790,17 @@ Typing indicators:
 - SHOULD timeout after 5 seconds without an update.
 - MAY be disabled per-user or per-channel.
 
-## Subscribing to Presence
+## Subscribing to Availability
 
-Participants subscribe (SUBSCRIBE_NAMESPACE) to the presence
-namespace to receive presence and typing updates from all
+Participants subscribe (SUBSCRIBE_NAMESPACE) to the availability
+namespace to receive availability and typing updates from all
 channel members. This follows the same pattern as roster
 subscription — joining a channel implicitly subscribes
-the device to presence.
-
-# Delivery Properties {#delivery}
-
-## Reliability
-
-Text messages MUST be delivered reliably using QUIC streams.
-Messages use MOQT's stream-based delivery to ensure no
-message loss.
-
-## Fan-Out
-
-When multiple participants subscribe to the same device
-track, the relay performs fan-out delivery. Each published
-message is delivered to all subscribers of that track.
-
-## Caching
-
-Relays MUST cache published message objects for the duration
-of their configured cache retention. Cached objects serve
-late-join (Joining FETCH) and history retrieval. Since groups
-correspond to NTP minutes, a relay caching the last N groups
-provides approximately N minutes of history.
+the device to availability.
 
 # Security Considerations
 
-## Transport Security
-
-All message delivery MUST use TLS 1.3 via QUIC or
-WebTransport, providing hop-by-hop encryption between
-participants and relays.
-
-## Authorization
-
-Devices MUST be authorized before publishing or subscribing
-to tracks. Authorization is enforced at the relay as
-specified in {{MOCHA}}.
-
-## Message Integrity
-
-The MsgID construction (hash of track name + position) allows
-any recipient to verify the claimed identity of a message.
-Participants SHOULD verify that the sender's dev_id in the
-message matches the track name from which the message was
-received.
-
-## Content Visibility
-
-Without end-to-end encryption, relays can observe message
-content. Deployments requiring confidentiality MUST enable
-E2EE as defined in {{MOCHA}}.
+TODO
 
 # IANA Considerations
 
