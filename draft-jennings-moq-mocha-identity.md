@@ -86,6 +86,17 @@ See BCP 14 {{!RFC2119}} {{!RFC8174}}.
 This document uses terminology defined in {{MOCHA-ARCH}}, including
 Provider, Organization, Team, Channel, Device, and DevID.
 
+The following identifiers are defined in this document:
+
+HClientID:
+: A hashed client identifier derived via HMAC. Used in
+  namespace tuples and track names instead of the raw
+  clientID. See {{id-derivation}}.
+
+HDevID:
+: A hashed device identifier derived via HMAC. Used in
+  track names instead of the raw devID. See {{id-derivation}}.
+
 The following additional terms are used:
 
 Identity Provider (IdP):
@@ -728,6 +739,46 @@ MUST stop using that token and request a new one via HTTP
 ~~~
 {: #fig-revocation title="Token Revocation Flow"}
 
+
+# Identifier Derivation {#id-derivation}
+
+Both the HClientID and HDevID used in namespace tuples and
+track names are derived using HMAC with a shared secret K
+between the client and the provider. The clientID is the
+identifier for the client participant obtained out of band,
+and "||" denotes concatenation.
+
+The shared secret K is established during the authentication
+flow ({{idp-auth}}) and is unique per client-provider pair.
+
+The HClientID is computed as:
+
+~~~
+  HClientID = HMAC(K, <namespace-tuple-without-HClientID> ||
+                  clientID)
+~~~
+
+The HDevID is computed as:
+
+~~~
+  HDevID = HMAC(K, <namespace-tuple-with-HClientID> || devID)
+~~~
+
+where devID is the device identifier used as the device
+identity in the MoQ track. The devID MAY be the hash of
+the client's public key used for DPoP binding ({{dpop}}),
+providing a stable per-device identifier tied to the
+cryptographic material.
+
+These derived identifiers ensure that:
+
+- The actual clientID and devID are not exposed on the wire
+- Different namespaces produce different HClientID/HDevID
+  values for the same client, preventing cross-namespace
+  correlation by relays
+- Only the client and the provider (who share K) can verify
+  the mapping between the raw identifiers and their hashed
+  forms
 
 # Service Discovery {#discovery}
 

@@ -89,13 +89,13 @@ Session:
   instance. Sessions are transient (a client may disconnect
   and reconnect, creating a new session); the context persists.
 
-ClientID:
-: Opaque, globally unique, assigned by the provider. Exchanged
-  during session negotiation based on the client's identity.
+HClientID:
+: Hashed client identifier, derived per {{MOCHA-IDENTITY}}.
 
-DevID:
-: Identifies a publishing device. One client may have
-  multiple devices publishing under the same namespace.
+HDevID:
+: Hashed device identifier, derived per {{MOCHA-IDENTITY}}.
+  One client may have multiple devices publishing under the
+  same namespace.
 
 # Namespace Design {#namespace-design}
 
@@ -115,10 +115,10 @@ server discovers new clients by subscribing to the prefix
 (<app>, <context_id>, "client", "in", <client_id>, <lang>)
 ~~~
 
-Track name: `<rendition_id>_<DevID>`
+Track name: `<rendition_id>_<HDevID>`
 
 * `<rendition_id>` — codec, sample rate, channels (e.g., `opus-16000-1`)
-* `<DevID>` — the publishing device
+* `<HDevID>` — the publishing device
 
 Example:
 
@@ -248,7 +248,7 @@ Private object properties (optional):
 | Property             | Type    | Description                          |
 |:--- |:--- |:--- |
 | `is_translated`      | boolean | True if translated                   |
-| `source_client` | string  | Original speaker's ClientID     |
+| `source_client` | string  | Original speaker's HClientID    |
 | `source_lang`        | string  | BCP 47 code of original speech       |
 
 

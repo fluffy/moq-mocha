@@ -149,14 +149,14 @@ Commits, Welcomes) on its own track within the MLS
 namespace:
 
 ~~~
-  mls_v1_<DevID>
+  mls_v1_<HDevID>
 ~~~
 
 Each device publishes its KeyPackage on its own track within
 the keypackage namespace:
 
 ~~~
-  keypackage_v1_<DevID>
+  keypackage_v1_<HDevID>
 ~~~
 
 ## Object Semantics
@@ -244,7 +244,7 @@ epoch transition for each Proposal.
 
 The Provider designates the initial committer when the
 channel is created. The channel metadata returned by the
-Provider includes the creator's DevID as the initial
+Provider includes the creator's HDevID as the initial
 committer. Since channel creation requires the Provider to
 be reachable, the Provider serializes this assignment —
 no race condition is possible.
@@ -262,7 +262,7 @@ The losing bootstrapper observes the established group and
 falls back to follower behavior.
 
 Because this fallback uses Provider-authorized channel
-membership rather than always electing the lowest DevID,
+membership rather than always electing the lowest HDevID,
 the attack surface is reduced — only devices the Provider
 has authorized for the channel can assume the committer
 role.
@@ -271,7 +271,7 @@ role.
 
 The current committer MAY designate a successor by including
 a committer_transfer extension in a Commit. The successor's
-DevID is recorded in the group state.
+HDevID is recorded in the group state.
 
 ## Committer Failover {#committer-failover}
 
@@ -291,9 +291,9 @@ elect a new committer using the following deterministic rule:
 1. All active members (those with a currently published
    roster entry with status "active") are eligible.
 2. If the departing committer's last Commit contained a
-   committer_transfer extension, the designated DevID
+   committer_transfer extension, the designated HDevID
    becomes the new committer. Otherwise, the eligible
-   member with the lowest DevID (lexicographic ordering)
+   member with the lowest HDevID (lexicographic ordering)
    becomes the new committer.
 3. The new committer publishes a Commit containing all
    pending Proposals plus its own Update proposal to
@@ -323,7 +323,7 @@ prove liveness and current epoch membership. All members
 MUST subscribe to the committer's keep-alive track:
 
 ~~~
-  keepalive_v1_<DevID>
+  keepalive_v1_<HDevID>
 ~~~
 
 ### Track Properties
@@ -400,7 +400,7 @@ keypackage track within the channel's keypackage namespace:
 ~~~
   Namespace: ("mocha_v1", <Provider>, <OrgID>, "keypackage",
               <TeamID>, <ChannelID>, <MLSParticipantID>)
-  Track: keypackage_v1_<DevID>
+  Track: keypackage_v1_<HDevID>
 ~~~
 
 The committer MUST subscribe to the KeyPackage namespace
@@ -424,7 +424,7 @@ KeyPackage.
 When a member issues a Commit that adds a new participant,
 it publishes the Welcome message as an object on its own
 MLS track. The Welcome is addressed to the new member by
-including the target DevID in an object property, allowing
+including the target HDevID in an object property, allowing
 the new member to identify which object contains its Welcome.
 
 
@@ -439,15 +439,15 @@ group:
 1. Creator generates an MLS group with a fresh group ID
    derived from the channel namespace.
 2. Creator publishes (PUBLISH) its KeyPackage on track
-   `keypackage_v1_<DevID>` within the keypackage namespace:
+   `keypackage_v1_<HDevID>` within the keypackage namespace:
    ("mocha_v1", \<Provider\>, \<OrgID\>, "keypackage",
    \<TeamID\>, \<ChannelID\>, \<MLSParticipantID\>).
 3. Creator publishes the initial Commit (epoch 0 to epoch 1)
-   on track `mls_v1_<DevID>` within the MLS namespace:
+   on track `mls_v1_<HDevID>` within the MLS namespace:
    ("mocha_v1", \<Provider\>, \<OrgID\>, "mls",
    \<TeamID\>, \<ChannelID\>, \<MLSParticipantID\>).
 4. Creator publishes its initial keep-alive on track
-   `keepalive_v1_<DevID>` within the MLS namespace.
+   `keepalive_v1_<HDevID>` within the MLS namespace.
 5. Creator subscribes (SUBSCRIBE_NAMESPACE) to the keypackage
    namespace to receive KeyPackages from new joiners.
 6. Creator subscribes (SUBSCRIBE_NAMESPACE) to the MLS
@@ -458,29 +458,29 @@ group:
 To add a member to the channel:
 
 1. The new device publishes (PUBLISH) its KeyPackage on track
-   `keypackage_v1_<DevID>` within the keypackage namespace.
+   `keypackage_v1_<HDevID>` within the keypackage namespace.
 2. The committer, subscribed to the keypackage namespace,
    receives the new KeyPackage via the relay.
 3. The committer creates an MLS Commit containing an Add
    Proposal referencing the received KeyPackage. Only the
    current committer MUST produce Commits.
 4. The committer publishes the Commit and the Welcome message
-   on track `mls_v1_<DevID>` within the MLS namespace.
+   on track `mls_v1_<HDevID>` within the MLS namespace.
 5. All existing members, subscribed to the MLS namespace,
    receive the Commit and advance to the new epoch. Members
    MUST cache received Proposals locally until the
    corresponding Commit from the committer is received.
 6. The new member subscribes (SUBSCRIBE) to the committer's
-   track `mls_v1_<committer-DevID>`, receives the Welcome,
+   track `mls_v1_<committer-HDevID>`, receives the Welcome,
    and initializes its group state at the new epoch.
 7. The new member subscribes (SUBSCRIBE_NAMESPACE) to the
    MLS namespace to receive future Proposals and Commits.
 8. The new member subscribes (SUBSCRIBE) to the committer's
-   keep-alive track `keepalive_v1_<committer-DevID>`.
+   keep-alive track `keepalive_v1_<committer-HDevID>`.
 
 Alternatively, any member subscribed to the keypackage
 namespace MAY create an Add Proposal and publish it on its
-own track `mls_v1_<DevID>`. The committer incorporates such
+own track `mls_v1_<HDevID>`. The committer incorporates such
 Proposals into its next Commit.
 
 ## Removing Members
@@ -489,13 +489,13 @@ To remove a member:
 
 1. The remover creates an MLS Remove Proposal for the target
    member's leaf index and publishes (PUBLISH) it on track
-   `mls_v1_<DevID>` within the MLS namespace.
+   `mls_v1_<HDevID>` within the MLS namespace.
 2. The committer, subscribed to the MLS namespace, receives
    the Remove Proposal and creates an MLS Commit
    incorporating it. Only the current committer MUST produce
    Commits.
 3. The committer publishes the Commit on its track
-   `mls_v1_<DevID>` within the MLS namespace.
+   `mls_v1_<HDevID>` within the MLS namespace.
 4. All remaining members, subscribed to the MLS namespace,
    receive the Commit and advance to the new epoch. Members
    MUST cache received Proposals locally until the
@@ -509,13 +509,13 @@ Any member can rotate its own key material:
 
 1. The member creates an MLS Update Proposal with fresh key
    material and publishes (PUBLISH) it on track
-   `mls_v1_<DevID>` within the MLS namespace.
+   `mls_v1_<HDevID>` within the MLS namespace.
 2. The committer, subscribed to the MLS namespace, receives
    the Update Proposal and creates an MLS Commit
    incorporating it. Only the current committer MUST produce
    Commits.
 3. The committer publishes the Commit on its track
-   `mls_v1_<DevID>` within the MLS namespace.
+   `mls_v1_<HDevID>` within the MLS namespace.
 4. All members, subscribed to the MLS namespace, receive the
    Commit and advance to the new epoch with updated key
    material. Members MUST cache received Proposals locally
@@ -565,7 +565,7 @@ A dedicated sync track carries periodic state updates for
 partial members:
 
 ~~~
-  sync_v1_<DevID>
+  sync_v1_<HDevID>
 ~~~
 
 Core group members publish sync objects containing the path
