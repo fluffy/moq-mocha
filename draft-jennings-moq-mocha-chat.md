@@ -292,6 +292,7 @@ Fields use short keys for compact JSON encoding.
     "body": "<message text>"
   },
   "prev": ["<hex-encoded MsgID>", ...],
+  "threadId": "<hex-encoded MsgID>",
   "replaces": "<hex-encoded MsgID>",
   "expires": 0,
   "ext": {}
@@ -326,6 +327,13 @@ prev (REQUIRED):
   message(s) in the channel. This forms a causal ordering
   DAG across all tracks in the channel. An empty array
   indicates no known predecessors. See {{causal-ordering}}.
+
+threadId (OPTIONAL):
+: The hex-encoded MsgID of the root message that started
+  the thread. Present when this message is a reply within
+  a thread. Threads are flat — nested threading is not
+  supported. If absent, the message is a top-level channel
+  message.
 
 replaces (OPTIONAL):
 : The hex-encoded MsgID of a prior message that this message
@@ -588,6 +596,33 @@ A delete message removes a prior message from display. No
 5. Relays forward edit and delete objects like any other
    message object without interpreting their semantics.
 
+
+# Threading {#threading}
+
+MOCHA supports threaded conversations where replies are
+grouped under a parent message. Threads are flat — nested
+threading is not supported.
+
+## Thread Replies
+
+To reply within a thread, a device publishes a message on
+its regular `msg_v1_<DevID>` track with the `threadId` field
+set to the MsgID of the root message that started the
+thread. The root message itself has no `threadId` field.
+
+## Thread Display
+
+Clients SHOULD group messages with the same `threadId` and
+display them as a thread under the root message. The root
+message is identified by its MsgID matching the `threadId`
+of the replies.
+
+## Thread Edits and Deletes
+
+Edit and delete messages (types 2 and 3) within a thread
+MUST carry the same `threadId` as the message they replace.
+This allows clients to correctly scope the edit or delete
+to the thread view.
 
 # Sending Messages {#sending}
 
