@@ -89,13 +89,10 @@ Session:
   instance. Sessions are transient (a client may disconnect
   and reconnect, creating a new session); the context persists.
 
-HClientID:
-: Hashed client identifier, derived per {{MOCHA-IDENTITY}}.
+StreamID: Identifies the media stream. A stream is one audio input to
+the translatopr which produices mutple moq track in different languages
+for the one stream.
 
-HDevID:
-: Hashed device identifier, derived per {{MOCHA-IDENTITY}}.
-  One client may have multiple devices publishing under the
-  same namespace.
 
 # Namespace Design {#namespace-design}
 
@@ -112,19 +109,18 @@ server discovers new clients by subscribing to the prefix
 `(<app>, <context_id>, "client", "in")`.
 
 ~~~
-(<app>, <context_id>, "client", "in", <client_id>, <lang>)
+(<app>, <context_id>, "in", <stream_id>, <lang>)
 ~~~
 
-Track name: `<rendition_id>_<HDevID>`
+Track name: `<rendition_id>`
 
 * `<rendition_id>` — codec, sample rate, channels (e.g., `opus-16000-1`)
-* `<HDevID>` — the publishing device
 
 Example:
 
 ~~~
-Namespace: ("acme.com/translate", "mtg-42", "client", "in", "p-a1", "en")
-Track:     "opus-16000-1_dev-x1"
+Namespace: ("acme.com/translate", "mtg-42", "in", "strm1234", "en")
+Track:     "opus-16000-1"
 ~~~
 
 ## Server Output (4 elements)
@@ -141,9 +137,7 @@ Tracks:
 
 | Track Name                           | Content                            |
 |:--- |:--- |
-| `mix/<lang>/audio`                   | Mixed translation into `<lang>`    |
-| `self/<lang>/audio`                  | Speaker's own audio translated     |
-| `passthrough/<client_id>/audio` | Untranslated audio from a speaker  |
+| `out/<lang>/`                        | translation into `<lang>`    |
 | `transcript/<lang>`                  | Transcript objects in `<lang>`     |
 
 Example:
@@ -161,7 +155,7 @@ clients discover upstream agents by subscribing to the prefix
 `(<app>, <context_id>, "agent", <agent_type>)`.
 
 ~~~
-(<app>, <context_id>, "agent", <agent_type>, <instance_id>)
+(<app>, <context_id>, "out", `<agent_type>, <stream_id>, <lang>)
 ~~~
 
 The `<agent_type>` value identifies the processing stage:
