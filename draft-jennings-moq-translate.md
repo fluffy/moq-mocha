@@ -3,7 +3,7 @@ title: "Real-Time Language Translation over MoQ Transport"
 abbrev: "moq-translate"
 category: info
 
-docname: draft-jennings-moq-translate-latest
+docname: draft-jennings-moq-translate-00
 submissiontype: IETF
 number:
 date:
@@ -37,7 +37,10 @@ author:
 
 normative:
   MoQTransport: I-D.draft-ietf-moq-transport
+  MOCHA-IDENTITY: I-D.draft-jennings-moq-mocha-identity
   JSON: RFC8259
+
+informative:
   OPUS:
     title: "Definition of the Opus Audio Codec"
     target: https://www.rfc-editor.org/rfc/rfc6716
@@ -215,8 +218,8 @@ to matching SUBSCRIBE_NAMESPACE holders automatically.
 
 Each MOQT object contains a single audio frame. The codec, sample
 rate, and channel count are determined by the `<rendition_id>` in
-the track name (e.g., `opus-16000-1` means Opus, 16kHz, mono,
-producing 20ms frames).
+the track name (e.g., `opus-16000-1` means Opus {{OPUS}}, 16kHz,
+mono, producing 20ms frames).
 
 | Field    | Value                          |
 |:--- |:--- |
@@ -248,13 +251,13 @@ Private object properties (optional):
 
 # Transcript Objects {#transcript-format}
 
-JSON-encoded, one object per utterance segment:
+{{JSON}}-encoded, one object per utterance segment:
 
 ~~~json
 {
   "client_id": "p-b2",
   "source_lang": "es",
-  "text": "Hola, como estan todos?",
+  "text": "Hola, cómo están todos?",
   "translation": "Hello, how is everyone?",
   "is_final": true,
   "start_time_ms": 1500,
