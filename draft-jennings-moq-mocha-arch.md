@@ -1,47 +1,144 @@
-# Abtract 
+---
+title: "MOCHA Architecture: Terminology and System Design"
+abbrev: "mocha-arch"
+category: info
 
-This specification defined the teminology and architecture used in Mocha. 
+docname: draft-jennings-moq-mocha-arch-00
+submissiontype: IETF
+number:
+date:
+consensus: true
+v: 3
+area: "Applications and Real-Time"
+workgroup: "Media Over QUIC"
+keyword:
+ - MoQ
+ - MOQT
+ - MOCHA
+ - Architecture
+venue:
+  group: "Media Over QUIC"
+  type: "Working Group"
+  mail: "moq@ietf.org"
+  arch: "https://mailarchive.ietf.org/arch/browse/moq/"
 
-# Goals 
+author:
+  -
+    fullname: Cullen Jennings
+    organization: Cisco
+    email: fluffy@iii.ca
 
-Form a meeting and messaging system for users across a set of federated providers. Allow users to chat with and have audio vidoe meetings using only MoQ Relays to trasfer the data. While operations creating new organzations, users, devices, teams, or channels will require or changing permissions or membership will require the Provider to be reachable, basic chat and meetings work to without access to the Provider. All content is end to end encryped. 
+  -
+    fullname: Suhas Nandakumar
+    organization: Cisco
+    email: snandaku@cisco.com
+
+normative:
+  MoQTransport: I-D.draft-ietf-moq-transport
+  MOCHA-IDENTITY: I-D.draft-jennings-moq-mocha-identity
+  MOCHA-CHAT: I-D.draft-jennings-moq-mocha-chat
+  MOCHA-MEETINGS: I-D.draft-jennings-moq-mocha-meetings
+  MOCHA-MLS: I-D.draft-jennings-moq-mocha-mls-keying
+
+informative:
 
 
-# Terminology 
+--- abstract
 
-* User: Represnets a humany or bot user. Has an identity on a single Orginatzation in Provider. Users are identified by an E.164 phone number at the Provider they use. A users phone nuber can be changed but they have a unique UserID at that provider that can not be changed. 
+This specification defines the terminology and architecture used
+in MOCHA (MoQ Open Communication & Hosting Architecture).
 
-* Device: Device a users uses to interact with Mocha. A device has a  a single users. User can have multiple devices. 
+--- middle
 
-* DevID: 64 bit identifier for device and statistially unique within a single Team. 
+# Introduction
 
-* Provider: A logical entity that provides identity, policy, and membership for a set of users and organizations. Providers are identified by a DNS name. 
+MOCHA forms a meeting and messaging system for users across a
+set of federated providers. It allows users to chat with and
+have audio video meetings using only MoQ Relays to transfer the
+data. While operations creating new organizations, users,
+devices, teams, or channels, or changing permissions or
+membership, require the Provider to be reachable, basic chat
+and meetings work without access to the Provider. All content
+is end to end encrypted.
 
-* Origanization: A logical entity owned by a Provider containingn multiple Users and teams. 
+# Conventions and Definitions
 
-* Team: A grouping of users with an Organzation. A team is owned by a single Organization but may have users from multiple organizations across multuple providers. 
+See BCP 14 {{!RFC2119}} {{!RFC8174}}.
 
-* Channel: A named location inside a Team that has an roughly chronilogical conversation. Same ideas as a Room in other systems. 
+# Terminology
 
-* Message: A small chunk of content in a Room sent at a point in time. Can be any media type. 
+User:
+: Represents a human or bot user. Has an identity on a single
+  Organization in a Provider. Users are identified by an E.164
+  phone number at the Provider they use. A user's phone number
+  can be changed but they have a unique UserID at that provider
+  that cannot be changed.
 
-* Translation: A conversion of a message to another media format or language. 
+Device:
+: A device a user uses to interact with MOCHA. A device belongs
+  to a single user. A user can have multiple devices.
 
-* Thread: An order set of Message that share a common base Message that was not part of any other Thread. Threads are not nested. 
+DevID:
+: A 64 bit identifier for a device, statistically unique within
+  a single Team.
 
-* Reaction: A glyph sent in reaction to a Message. 
+Provider:
+: A logical entity that provides identity, policy, and
+  membership for a set of users and organizations. Providers
+  are identified by a DNS name.
 
-* Meeting: An audio video conference call. This happens in the context a of a single Channel but a Channel can have many meeting over time or concurently. 
+Organization:
+: A logical entity owned by a Provider containing multiple
+  Users and Teams.
 
-* Roles: Organizations, Teams, Channel and Meetings all have Users that can take on different roles which defined their permisiions. Roles include: Owner, Moderator, Partipant, Observer
+Team:
+: A grouping of users within an Organization. A team is owned
+  by a single Organization but may have users from multiple
+  organizations across multiple providers.
 
-* GroupID: The 32 bit MoQ Group. The ID is the NTP time in minutes for creation time of data inside this group. 
+Channel:
+: A named location inside a Team that has a roughly
+  chronological conversation. Same concept as a Room in other
+  systems.
 
-* ObjectID: The 64 bit integer indientifing an MoQ object inside a group. 
+Message:
+: A small chunk of content in a Channel sent at a point in
+  time. Can be any media type.
+
+Translation:
+: A conversion of a message to another media format or
+  language.
+
+Thread:
+: An ordered set of Messages that share a common base Message
+  that was not part of any other Thread. Threads are not
+  nested.
+
+Reaction:
+: A glyph sent in reaction to a Message.
+
+Meeting:
+: An audio video conference call. This happens in the context
+  of a single Channel but a Channel can have many meetings
+  over time or concurrently.
+
+Roles:
+: Organizations, Teams, Channels, and Meetings all have Users
+  that can take on different roles which define their
+  permissions. Roles include: Owner, Moderator, Participant,
+  Observer.
+
+GroupID:
+: The 32 bit MoQ Group. The ID is the NTP time in minutes for
+  creation time of data inside this group.
+
+ObjectID:
+: The 64 bit integer identifying an MoQ object inside a group.
 
 # Protocol Layer Cake
 
-MOCHA is designed as a layered protocol stack. Each layer depends on the layers below it:
+MOCHA is designed as a layered protocol stack. Each layer
+depends on the layers below it:
 
 ~~~
   ┌─────────────────────────────────────────────────────────────┐
@@ -81,9 +178,38 @@ MOCHA is designed as a layered protocol stack. Each layer depends on the layers 
 
 # Architecture
 
-All infomation between Devices for Channels and Meetings is echanged over a network of MoQ relays.  Each Device also subscribes for information about it's configureation includding from it's Provider. 
+All information between Devices for Channels and Meetings is
+exchanged over a network of MoQ relays. Each Device also
+subscribes for information about its configuration including
+from its Provider.
 
 ## Persistence Service
 
-The Persistence Service provides durable storage for MOCHA data beyond the lifetime of relay caches. It stores token revocation records, user roles and membership state, chat message history, channel metadata, and meeting recordings. The Persistence Service participates in MOQT as both a subscriber (ingesting live data from channel namespaces and the Token Service revocation track) and a publisher (serving historical data to clients and relays via FETCH requests that exceed relay cache retention).
+The Persistence Service provides durable storage for MOCHA
+data beyond the lifetime of relay caches. It stores token
+revocation records, user roles and membership state, chat
+message history, channel metadata, and meeting recordings.
+The Persistence Service participates in MOQT as both a
+subscriber (ingesting live data from channel namespaces and
+the Token Service revocation track) and a publisher (serving
+historical data to clients and relays via FETCH requests that
+exceed relay cache retention).
 
+# Security Considerations
+
+MOCHA relies on end-to-end encryption via MLS key management
+(Layer 3) to protect message content from intermediaries
+including relays. Authorization tokens (Layer 4) control
+access to channels and meetings. The relay network provides
+hop-by-hop TLS 1.3 encryption for transport protection.
+
+# IANA Considerations
+
+This document has no IANA actions.
+
+--- back
+
+# Acknowledgments
+{:numbered="false"}
+
+TODO acknowledge.
