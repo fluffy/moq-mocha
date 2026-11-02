@@ -39,12 +39,15 @@ normative:
   MoQTransport: I-D.draft-ietf-moq-transport
   MOCHA-ARCH: I-D.draft-jennings-moq-mocha-arch
   MOCHA-IDENTITY: I-D.draft-jennings-moq-mocha-identity
+  MOCHA-KEY-BINDING: I-D.draft-jennings-moq-mocha-key-binding
+  MOCHA-PAB: I-D.draft-jennings-moq-mocha-pab
   MOCHA-CHAT: I-D.draft-jennings-moq-mocha-chat
   MLS: RFC9420
   SecureObjects: I-D.draft-jennings-moq-secure-objects
   MLS-PARTIAL: I-D.draft-ietf-mls-partial
 
 informative:
+  MLS-VIRTUAL-CLIENTS: I-D.draft-ietf-mls-virtual-clients
 
 --- abstract
 
@@ -79,9 +82,11 @@ impractical, this document specifies the use of Partial MLS
 {{MLS-PARTIAL}}, which allows subgroups of members to
 participate without processing every commit in the full group.
 
-Credentials used within MLS (signing keys, identity
-assertions) are obtained via the mechanisms defined in
-{{MOCHA-IDENTITY}}.
+Credentials used within MLS embed the binding chain defined in
+{{MOCHA-KEY-BINDING}}, which links device signing keys to user
+keys and OAuth identity assertions. Trust decisions are
+anchored in each member's Personal Address Book {{MOCHA-PAB}},
+enabling offline credential validation.
 
 
 # Conventions and Definitions
@@ -308,7 +313,7 @@ operations.
 ## Follower Behavior
 
 Followers subscribe to all MLS tracks in the channel
-namespace via SUBSCRIBE_NAMESPACE. They:
+namespace via SUBSCRIBE_TRACKS. They:
 
 1. Publish Proposals on their own MLS tracks when they
    wish to add, remove, or update members.
@@ -404,7 +409,7 @@ keypackage track within the channel's keypackage namespace:
 ~~~
 
 The committer MUST subscribe to the KeyPackage namespace
-(SUBSCRIBE_NAMESPACE) to be notified when new devices
+(SUBSCRIBE_TRACKS) to be notified when new devices
 publish KeyPackages. Upon receiving a new KeyPackage, the
 committer creates an Add Proposal and includes it in its
 next Commit.
@@ -448,9 +453,9 @@ group:
    \<TeamID\>, \<ChannelID\>, \<MLSParticipantID\>).
 4. Creator publishes its initial keep-alive on track
    `keepalive_v1_<HDevID>` within the MLS namespace.
-5. Creator subscribes (SUBSCRIBE_NAMESPACE) to the keypackage
+5. Creator subscribes (SUBSCRIBE_TRACKS) to the keypackage
    namespace to receive KeyPackages from new joiners.
-6. Creator subscribes (SUBSCRIBE_NAMESPACE) to the MLS
+6. Creator subscribes (SUBSCRIBE_TRACKS) to the MLS
    namespace to receive Proposals from other members.
 
 ## Adding Members
@@ -473,7 +478,7 @@ To add a member to the channel:
 6. The new member subscribes (SUBSCRIBE) to the committer's
    track `mls_v1_<committer-HDevID>`, receives the Welcome,
    and initializes its group state at the new epoch.
-7. The new member subscribes (SUBSCRIBE_NAMESPACE) to the
+7. The new member subscribes (SUBSCRIBE_TRACKS) to the
    MLS namespace to receive future Proposals and Commits.
 8. The new member subscribes (SUBSCRIBE) to the committer's
    keep-alive track `keepalive_v1_<committer-HDevID>`.
@@ -573,6 +578,248 @@ secrets needed by partial members to derive current
 application keys.
 
 
+# Virtual Clients for Multi-Device Users {#virtual-clients}
+
+By default, each device of a user is a separate leaf in every
+channel's MLS group. A user with several devices therefore
+occupies several leaves, and adding or removing a device
+requires an Add or Remove Commit in every channel the user
+belongs to.
+
+MLS Virtual Clients {{MLS-VIRTUAL-CLIENTS}} allows a set of
+devices to jointly operate a single MLS leaf. This section
+defines an OPTIONAL profile in which each MOCHA user is
+represented in channel groups by one virtual client, emulated
+by that user's devices. Deployments that do not implement this
+profile continue to use one leaf per device.
+
+## Terminology Mapping
+
+| Virtual Clients term         | MOCHA equivalent                  |
+|------------------------------|-----------------------------------|
+| Virtual client               | A user, as a single leaf per channel |
+| Emulator client              | One of the user's devices         |
+| Emulation group              | A per-user MLS group of the user's devices |
+| Higher-level group           | A channel MLS group ({{lifecycle}}) |
+
+## Goals
+
+This profile primarily targets:
+
+- **Smaller channel trees:** the number of leaves in a channel
+  group equals the number of users rather than the number of
+  devices, reducing Commit size and group state download cost
+  and deferring the point at which Partial MLS
+  ({{partial-mls}}) is needed.
+
+- **Cheap device onboarding:** a new device joins its user's
+  emulation group once and obtains the state of every channel
+  the user belongs to, without an Add Commit in each channel.
+
+- **Fewer blanks:** removing one device does not blank the
+  user's leaf or direct path in channel groups.
+
+Hiding the number of a user's devices from other channel
+members is not a goal of this profile as specified; see
+{{vc-challenges}}.
+
+## Emulation Group
+
+Each user participating in this profile maintains one
+emulation group whose members are the user's devices. Only
+devices holding a valid, unrevoked device binding
+({{MOCHA-KEY-BINDING}}) for the user's user key are admitted.
+
+The emulation group uses the same track structure and
+Delivery Service model as a channel group ({{mls-naming}},
+{{delivery-service}}), under a per-user namespace:
+
+~~~
+  ("mocha_v1", <Provider>, <OrgID>, "mls-emu", <HClientID>)
+~~~
+
+Each device publishes emulation group messages on its own
+track `mls_v1_<HDevID>` within this namespace. The
+committer, failover, and keep-alive procedures of
+{{delivery-service}} apply unchanged. The ordering provided by
+the emulation group committer is the ordering that
+{{MLS-VIRTUAL-CLIENTS}} requires for virtual client actions
+such as KeyPackage uploads.
+
+Emulation group messages MUST NOT be published under any
+channel namespace. The GroupInfo carrying the
+NewEmulatorClientState MUST only be delivered inside a Welcome
+and MUST NOT be published on any track, since it contains the
+secret state of every channel the user belongs to.
+
+## Virtual Client Credential {#vc-credential}
+
+The mocha_binding_chain credential requires the LeafNode
+signature key to equal a device key, which does not hold for a
+virtual client. This profile defines an additional credential
+type:
+
+~~~
+  credential_type = mocha_virtual_client (0xF002)
+
+  struct {
+    IdentityBinding identity_binding;
+    VirtualClientBinding virtual_client_binding;
+  } MochaVirtualClientCredential;
+
+  struct {
+    opaque user_key<32..255>;
+    opaque client_key<32..255>;
+    uint64 issued_at;
+    opaque signature<64..255>;
+  } VirtualClientBinding;
+~~~
+
+The `client_key` is a signature key whose private half is
+shared among the user's devices through the emulation group.
+The `signature` is computed by the user key over the other
+fields. The `client_key` MUST equal the `signature_key` in the
+LeafNode.
+
+Validation follows {{credentials}}, with the
+VirtualClientBinding taking the place of the DeviceBinding.
+Trust remains anchored in the user key held in the PAB, so
+offline validation is unaffected.
+
+A new `client_key` and VirtualClientBinding MUST be issued
+whenever a device is removed from the emulation group
+({{vc-remove-device}}).
+
+## Participation in Channel Groups
+
+The virtual client is the member of each channel group. Any of
+the user's devices MAY act for it. The following rules apply:
+
+1. A device publishes Proposals, Commits, and KeyPackages for
+   the virtual client on its own per-device tracks, as
+   defined in {{mls-naming}}. Two devices MUST NOT publish on
+   the same track.
+
+2. A device MUST deliver every message it sends for the
+   virtual client to the other devices in the emulation group,
+   as required by {{MLS-VIRTUAL-CLIENTS}}. Because the other
+   devices subscribe to the channel's MLS namespace, publishing
+   on the channel track satisfies this requirement.
+
+3. Track encryption keys ({{key-derivation}}) include the
+   track name, and tracks remain per device, so two devices
+   acting for the same leaf never derive the same key and
+   nonce. The KID leaf_index identifies the virtual client's
+   leaf.
+
+4. If a virtual client holds the committer role, the
+   emulation group determines which device acts as committer.
+   The committer_transfer extension and the failover rule in
+   {{committer-failover}} identify the virtual client by its
+   MLSParticipantID rather than by HDevID.
+
+## Adding a Device
+
+A new device is added to the emulation group by one of the
+user's existing devices with an MLS Add and Welcome. For each
+channel group, the provisioning device SHOULD use state
+transfer (Variant A of {{MLS-VIRTUAL-CLIENTS}}). It is
+invisible to channel members, preserves the epoch chain, and
+can complete directly between the user's own devices without
+the Provider being reachable.
+
+External commit (Variant B) MAY be used when no existing
+device is online, at the cost of a visible leave-and-rejoin in
+each affected channel.
+
+Before the new device sends messages in a channel group, the
+virtual client's leaf in that group MUST be rotated to an
+emulation group epoch that includes the new device.
+
+## Removing a Device {#vc-remove-device}
+
+To remove a device (for example, when it is lost or
+compromised), a remaining device of the user performs, in
+order:
+
+1. Publishes a device revocation for the removed device
+   ({{MOCHA-KEY-BINDING}}).
+2. Replaces all outstanding virtual client KeyPackages by
+   publishing new objects on its keypackage tracks.
+3. Commits the Remove in the emulation group.
+4. Issues a new `client_key` and VirtualClientBinding
+   ({{vc-credential}}).
+5. Updates the virtual client's leaf, with the new
+   credential, in every channel group the user belongs to.
+
+## Challenges {#vc-challenges}
+
+This profile introduces trade-offs that deployments need to
+weigh. The following list describes each, what
+{{MLS-VIRTUAL-CLIENTS}} says about it, and what remains open
+for MOCHA.
+
+Compromise scope:
+: All devices hold the full secret state of the virtual
+  client. Compromising one device compromises the user in
+  every channel, whereas with per-device leaves only that
+  device's leaf is affected. Post-compromise security is
+  regained only when the emulation group itself is updated.
+  {{MLS-VIRTUAL-CLIENTS}} acknowledges both and requires
+  devices to trust each other fully; it offers no
+  mitigation.
+
+Forward secrecy:
+: Forward secrecy in each channel is bounded by the user's
+  slowest device to delete consumed keys. {{MLS-VIRTUAL-CLIENTS}}
+  recommends deleting retained state as soon as possible,
+  notes that retained operation secrets are not needed
+  unless state transfer is used, and recommends updating the
+  leaf soon after an external commit or group creation.
+
+Non-atomic removal:
+: A removed device keeps valid keys for each channel until
+  that channel's leaf has been updated, and a KeyPackage that
+  escapes replacement lets it process a Welcome. The
+  procedure needs another of the user's devices to be online.
+  {{MLS-VIRTUAL-CLIENTS}} asks that this window be minimized
+  and that long-lived credentials be revoked. For MOCHA, the
+  device revocation and the new VirtualClientBinding make
+  the removed device's credential invalid. However, MOQT relays
+  may still serve cached KeyPackage objects in response to
+  FETCH, so committers MUST only use the latest KeyPackage
+  object on a track and MUST reject KeyPackages whose
+  credential carries a superseded VirtualClientBinding.
+
+Per-device control:
+: Channel members and administrators see only the user, so
+  they cannot remove a single stale or stolen device and
+  cannot attribute a message to a device. Only the user's own
+  devices can remove a device. {{MLS-VIRTUAL-CLIENTS}}
+  describes this as inherent to the design. Deployments
+  where administrators must be able to evict individual
+  devices SHOULD NOT use this profile.
+
+Device count visibility:
+: Because each device publishes on its own HDevID-named
+  track, relays and channel members subscribed to the MLS
+  namespace can still count a user's devices and see which
+  device is active. Hiding this would require the devices of
+  a user to share a publisher identity for a single track,
+  which MOQT does not currently support. Separately,
+  {{MLS-VIRTUAL-CLIENTS}} notes that the DerivationInfo
+  component marks a leaf as virtual and that a shared
+  epoch_id links a user's leaves across groups. In MOCHA,
+  the credential already identifies the user, so this link
+  reveals little that is not already visible.
+
+Dependencies:
+: {{MLS-VIRTUAL-CLIENTS}} is an early, Informational draft and
+  depends on the Safe Exporter of the MLS extensions framework.
+  Its secret derivation, reuse guard, and state transfer
+  formats may change.
+
+
 # Key Derivation for Message Encryption {#key-derivation}
 
 MLS-derived keys are used with MoQ Secure Objects
@@ -616,22 +863,93 @@ sender's position in the tree.
 
 # Credentials {#credentials}
 
-MLS requires each member to present a credential binding
-their identity to their signing key. In MOCHA, credentials
-are obtained through the identity system defined in
-{{MOCHA-IDENTITY}}.
+MLS requires each member to present a Credential in their
+LeafNode that binds their identity to their MLS signing key.
+MOCHA uses the mocha_binding_chain credential type defined in
+{{MOCHA-KEY-BINDING}} as the primary credential mechanism.
 
-The MLS credential contains:
+## Binding Chain as MLS Credential
 
-- The member's userId (as used in MOCHA message sender fields)
-- The member's signing public key
-- A signature from the Provider's Token Service binding the
-  userId to the public key
+The mocha_binding_chain credential embeds the user's key
+binding chain directly in the MLS LeafNode:
 
-Credential validation follows the trust model established
-by the Provider's identity infrastructure. Members MUST
-verify credentials against the Provider's public key before
-accepting any MLS protocol message.
+~~~
+  MLS LeafNode
+  +----------------------------------------------------------+
+  |  signature_key: <device public key>                      |
+  |                                                          |
+  |  credential (type: mocha_binding_chain, 0xF001)          |
+  |  +------------------------------------------------------+|
+  |  |  identity_binding:                                   ||
+  |  |    user_key + oauth_subject + id_token_hash + sig    ||
+  |  |                                                      ||
+  |  |  device_binding:                                     ||
+  |  |    user_key + device_key + device_id + sig           ||
+  |  |    (device_key == LeafNode.signature_key)            ||
+  |  +------------------------------------------------------+|
+  +----------------------------------------------------------+
+~~~
+
+This provides a self-contained proof chain from the MLS signing
+key to the user's OAuth identity. The device_key in the
+DeviceBinding MUST equal the signature_key in the LeafNode.
+
+## Credential Validation
+
+When a group member receives a LeafNode (via a Commit, Welcome,
+or KeyPackage), it validates the credential as follows:
+
+1. Extract the DeviceBinding from the credential. Verify that
+   the device_key equals the LeafNode's signature_key.
+
+2. Verify the DeviceBinding signature under the user_key.
+
+3. Verify the IdentityBinding signature under the same
+   user_key.
+
+4. Look up the user_key in the local Personal Address Book
+   (PAB) {{MOCHA-PAB}}.
+
+   - If found: the credential is trusted. The PAB entry's
+     display name is used for the member.
+
+   - If not found: the member fetches the full binding chain
+     from the user's keybinding track
+     ({{MOCHA-KEY-BINDING}}), verifies the OAuth assertion
+     against the IdP's JWKS, and prompts the user for a trust
+     decision. If accepted, the user_key is stored in the PAB.
+
+## Offline Validation
+
+This design enables MLS credential validation without network
+access:
+
+- The credential is self-contained in the LeafNode.
+- The PAB lookup is local.
+- Existing group members who already have each other's user
+  keys in their PABs verify credentials entirely offline.
+
+This is critical for MOCHA's offline operation goal: the home
+server need not be reachable for existing group members to
+verify each other's MLS messages.
+
+## KeyPackage Credentials
+
+KeyPackages published on the keypackage track ({{mls-naming}})
+MUST include the mocha_binding_chain credential. This allows
+the committer and other members to verify the identity of a
+new joiner before the Add Commit is issued.
+
+## Credential Rotation
+
+When a user rotates their user key ({{MOCHA-KEY-BINDING}}),
+they MUST publish a new KeyPackage with an updated credential
+containing the new identity_binding and device_binding. The
+committer issues a Commit with an Update proposal replacing
+the member's LeafNode with the new credential.
+
+Peers update their PAB entry via the key rotation mechanism
+defined in {{MOCHA-KEY-BINDING}}.
 
 
 # Security Considerations

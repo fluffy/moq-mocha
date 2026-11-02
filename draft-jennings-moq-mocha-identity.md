@@ -41,6 +41,8 @@ author:
 normative:
   MoQTransport: I-D.draft-ietf-moq-transport
   MOCHA-ARCH: I-D.draft-jennings-moq-mocha-arch
+  MOCHA-PAB: I-D.draft-jennings-moq-mocha-pab
+  MOCHA-KEY-BINDING: I-D.draft-jennings-moq-mocha-key-binding
   C4M: I-D.draft-ietf-moq-c4m
   PrivacyPassAuth: I-D.draft-ietf-moq-privacy-pass-auth
   PP-REVERSE: I-D.draft-meunier-privacypass-reverse-flow
@@ -125,7 +127,8 @@ DPoP (Demonstrating Proof of Possession):
 Authorization Parameter:
 : The MOQT parameter that carries authentication credentials. It
   can appear in CLIENT_SETUP, SUBSCRIBE, SUBSCRIBE_NAMESPACE,
-  PUBLISH, PUBLISH_NAMESPACE, and FETCH messages.
+  SUBSCRIBE_TRACKS, PUBLISH, PUBLISH_NAMESPACE, and FETCH
+  messages.
 
 Relay:
 : Validates access tokens and enforces access control for
@@ -779,6 +782,15 @@ These derived identifiers ensure that:
 - Only the client and the provider (who share K) can verify
   the mapping between the raw identifiers and their hashed
   forms
+
+# Identity Binding and Verification
+
+Peer-to-peer identity verification — the binding of device
+keys to a user key and the user key to an OAuth assertion — is
+specified in {{MOCHA-KEY-BINDING}}. That document defines how
+the binding chain is constructed, delivered, verified, and how
+trust decisions are recorded in the Personal Address Book
+{{MOCHA-PAB}}.
 
 # Service Discovery {#discovery}
 
