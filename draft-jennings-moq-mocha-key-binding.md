@@ -48,19 +48,29 @@ normative:
   RFC7095:
   RFC7519:
   RFC8446:
+  KBIA: I-D.draft-nandakumar-oauth-key-bound-id
 
 informative:
   MOCHA-MLS-KEYING: I-D.draft-jennings-moq-mocha-mls-keying
   RFC7595:
+  KEYTRANS: I-D.draft-ietf-keytrans-architecture
+  OPENPUBKEY:
+    title: "OpenPubkey: Augmenting OpenID Connect with User held Signing Keys"
+    author:
+      -
+        name: Ethan Heilman
+    date: 2023
+    target: https://eprint.iacr.org/2023/296
 
 
 --- abstract
 
 This document specifies how MOCHA users establish peer-to-peer
 trust through a cryptographic key binding chain. Each user has
-a long-lived user key that is committed to in an OpenID Connect
-ID Token issued by the user's Identity Provider (IdP) and that
-signs each of the user's device keys. The binding chain is
+a long-lived user key that is named in an identity assertion
+issued by the user's Identity Provider (IdP), either a Key-Bound
+Identity Assertion or an OpenID Connect ID Token that commits to
+the key, and that signs each of the user's device keys. The binding chain is
 delivered to peers, who verify it and store the trusted user key
 in their Personal Address Book (PAB). Peers may rely on the IdP
 for the initial binding or verify the user key out of band; in
@@ -85,9 +95,9 @@ an impersonator or a compromised intermediary.
 MOCHA solves this with a binding chain:
 
 1. Each device key is signed by the user's long-lived user key.
-2. The user key is committed to in an OIDC ID Token {{OIDC}}
-   issued by the user's IdP, and the user key signs an identity
-   binding referencing that token.
+2. The user key is named in an identity assertion issued by
+   the user's IdP ({{assertion-types}}), and the user key signs
+   an identity binding referencing that assertion.
 3. The chain is published on a MOQT track and carried in MLS
    credentials, where peers verify it.
 4. Verified user keys are stored in the peer's Personal Address
@@ -126,8 +136,13 @@ Device Key:
 
 Binding Chain:
 : The signed set of statements linking device keys to the user
-  key and the user key to an OIDC ID Token, together with any
+  key and the user key to an identity assertion, together with any
   revocation and rotation statements (see {{chain-format}}).
+
+Identity Assertion:
+: A token signed by the user's IdP that names the user key and
+  the user's identity at the IdP. Its forms are defined in
+  {{assertion-types}}.
 
 Fingerprint:
 : A short hash of the user's public key suitable for
@@ -142,9 +157,9 @@ Unix epoch (1970-01-01T00:00:00Z), ignoring leap seconds.
 
 ~~~
                     +---------------------+
-                    |   OIDC ID Token     |
-                    |  iss, sub, nonce =  |
-                    |  H(user key, salt)  |
+                    | Identity Assertion  |
+                    |  (KBIA or ID Token) |
+                    |  iss, sub, user key |
                     +----------+----------+
                                |
                         identity_binding
@@ -176,9 +191,10 @@ A user has exactly one current user key at a time. A user may
 have multiple devices, each with its own device key. All device
 keys are signed by the current user key.
 
-The ID Token commits to the user key (see {{oauth-binding}}),
-so a verifier that trusts the IdP learns that the user
-authenticated as the token's subject while holding that key.
+The identity assertion names the user key (see
+{{oauth-binding}}), so a verifier that trusts the IdP learns
+that the user authenticated as the assertion's subject while
+holding that key.
 
 ## User Key Custody {#key-custody}
 
@@ -256,8 +272,9 @@ Labels and contents:
     opaque user_key<V>;
     opaque oauth_issuer<V>;
     opaque oauth_subject<V>;
-    opaque nonce_salt<V>;
-    opaque id_token_hash[32];
+    uint8 assertion_type;
+    opaque nonce_salt<V>;      /* empty unless nonce-based */
+    opaque assertion_hash[32];
     uint64 issued_at;
   } IdentityBindingTBS;
 
@@ -338,14 +355,61 @@ by device revocation ({{device-revocation}}).
 
 # Identity Binding {#oauth-binding}
 
-## Committing the User Key in the ID Token {#key-commitment}
+The identity binding links the user key to the user's identity
+at their IdP. A signature by the user key over an IdP-issued
+token is not sufficient on its own: anyone who obtains a copy
+of an ID Token could sign it with a key of their own. The IdP's
+assertion must therefore itself name the user key.
 
-A signature by the user key over an ID Token alone does not
-show that the IdP associated the token with that key: anyone
-who obtains a copy of the token could sign it with a key of
-their own. MOCHA therefore requires that the ID Token itself
-commit to the user key through the OIDC `nonce` parameter.
+Standard OIDC {{OIDC}} has no means for an IdP to assert that
+a key belongs to a user. This document therefore supports
+several forms of identity assertion, so that deployments can
+use the strongest form their IdP supports.
 
+## Assertion Types {#assertion-types}
+
+| Value | Name | Assertion | Support |
+|:------|:-----|:----------|:--------|
+| 1 | kbia | Key-Bound Identity Assertion {{KBIA}} | RECOMMENDED |
+| 2 | oidc_nonce | ID Token with key commitment in `nonce` | REQUIRED |
+| 3 | oidc_nonce_gq | As `oidc_nonce`, IdP signature replaced by a GQ proof | OPTIONAL |
+{: #tab-assertion-types title="Identity Assertion Types"}
+
+Verifiers MUST support `kbia` and `oidc_nonce`, and MAY support
+`oidc_nonce_gq`. A key-holding device SHOULD use `kbia` when the
+user's IdP advertises KBIA support in its metadata {{KBIA}},
+and otherwise uses `oidc_nonce`.
+
+The types differ in what the IdP knows and what is published:
+
+- With `kbia`, the IdP explicitly asserts the binding after
+  verifying possession of the user key. The assertion is not a
+  bearer token, has a lifetime set by the IdP, and may disclose
+  claims selectively.
+- With `oidc_nonce`, the IdP is unaware of the binding; it
+  echoes a commitment chosen by the client. The published
+  assertion is an ID Token, which requires the precautions in
+  {{token-exposure}}.
+- `oidc_nonce_gq` makes the published ID Token unusable as a
+  bearer token but otherwise has the properties of
+  `oidc_nonce`.
+
+## Key-Bound Identity Assertion (kbia) {#assertion-kbia}
+
+A key-holding device requests a KBIA from the IdP as specified
+in {{KBIA}}, signing the DPoP proof with the user key. The user
+key's `sig_alg` MUST correspond to a JWS algorithm listed in the
+IdP's `kbia_key_alg_values_supported` (for example, `ed25519`
+corresponds to `EdDSA` with an OKP key on curve `Ed25519`).
+
+The `assertion` is the KBIA in compact serialization, or in the
+SD-JWT form with the Disclosures the user chooses to publish.
+The `nonce_salt` is empty.
+
+## Nonce Commitment (oidc_nonce) {#key-commitment}
+
+With this type, the ID Token commits to the user key through
+the OIDC `nonce` parameter, as in OpenPubkey {{OPENPUBKEY}}.
 To create an identity binding, a key-holding device:
 
 1. Generates a random `nonce_salt` of at least 16 bytes.
@@ -367,6 +431,7 @@ To create an identity binding, a key-holding device:
    key-binding client ID (see {{token-exposure}}).
 4. Signs an identity binding over the resulting ID Token.
 
+The `assertion` is the ID Token in JWS compact serialization.
 The salt prevents an observer from linking authentication
 requests to a user key before the binding is published.
 
@@ -374,6 +439,21 @@ Because OIDC does not guarantee that ID Tokens obtained by
 refresh carry the original `nonce`, a new identity binding
 MUST be obtained through a fresh authentication request (which
 MAY be non-interactive, e.g., using `prompt=none`).
+
+## GQ-Signed Nonce Commitment (oidc_nonce_gq) {#assertion-gq}
+
+This type is created as for `oidc_nonce`, except that before
+publication the key-holding device replaces the IdP's RSA
+signature on the ID Token with a Guillou-Quisquater (GQ) proof
+of knowledge of that signature, as described in
+{{OPENPUBKEY}}. The result verifies against the IdP's RSA public
+key but cannot be presented as an ID Token. This type applies
+only to ID Tokens signed with RSA algorithms.
+
+The `assertion` is the token with the GQ proof in place of the
+signature, and `assertion_hash` is computed over that form.
+The encoding of the GQ proof will be specified in a future
+revision of this document, aligned with {{OPENPUBKEY}}.
 
 ## Identity Binding Statement
 
@@ -384,30 +464,75 @@ MAY be non-interactive, e.g., using `prompt=none`).
   "user_key": "<user public key>",
   "oauth_issuer": "https://idp.example.com",
   "oauth_subject": "248289761001",
-  "nonce_salt": "<salt>",
-  "id_token_hash": "<SHA-256 of the ID Token>",
+  "assertion_type": 1,
+  "assertion_hash": "<SHA-256 of the assertion>",
   "issued_at": 1751000000,
   "signature": "<signature by user key over IdentityBindingTBS>"
 }
 ~~~
 
-The `oauth_issuer` and `oauth_subject` are the ID Token's `iss`
-and `sub` claims. The OIDC `sub` is an opaque identifier
+The `oauth_issuer` and `oauth_subject` are the assertion's
+`iss` and `sub` claims. The OIDC `sub` is an opaque identifier
 assigned by the IdP and is not an email address. The
-`id_token_hash` is SHA-256 over the ASCII bytes of the ID Token
-in JWS compact serialization.
+`assertion_hash` is SHA-256 over the ASCII bytes of the
+published `assertion`. For the nonce-based types, the JSON form
+also carries `nonce_salt`; for `kbia` it is omitted and encoded
+as empty in IdentityBindingTBS.
+
+## Verifying the Assertion {#assertion-verify}
+
+For `kbia`, the verifier:
+
+1. Validates the KBIA as specified in {{KBIA}}, including its
+   explicit type, signature, expiry, and, where local policy
+   requires, revocation status.
+2. Checks that the KBIA's `iss` and `sub` equal `oauth_issuer`
+   and `oauth_subject`.
+3. Checks that the KBIA's `cnf.jwk` is the user key: the same
+   algorithm as `sig_alg` and the same public key bytes as
+   `user_key`.
+
+For `oidc_nonce`, the verifier:
+
+1. Validates the ID Token signature against the IdP's JWKS
+   {{RFC7519}}. If the signing key identified by the token's
+   `kid` is no longer published, the verifier MAY use a
+   previously cached copy of that key; otherwise the chain is
+   unverified until the user publishes a refreshed identity
+   binding.
+2. Checks that the ID Token's `iss` and `sub` equal
+   `oauth_issuer` and `oauth_subject`.
+3. Checks that the ID Token's `aud` contains the key-binding
+   client ID associated with that issuer ({{token-exposure}}).
+   The verifier does not require `aud` to name itself.
+4. Checks that the identity binding's `issued_at` lies between
+   the ID Token's `iat` and `exp`, allowing for clock skew of
+   at most 5 minutes. The token is not required to be
+   unexpired at verification time.
+5. Recomputes the commitment from `sig_alg`, `user_key`, and
+   `nonce_salt` ({{key-commitment}}) and checks that it equals
+   the ID Token's `nonce` claim.
+
+For `oidc_nonce_gq`, the verifier performs the `oidc_nonce`
+checks, except that in step 1 it verifies the GQ proof against
+the IdP's RSA public key instead of a JWS signature.
 
 ## Binding Lifetime
 
-ID Tokens are short-lived, but an identity binding is meant to
-be verifiable after the token expires. The verifier therefore
-checks that the binding was created while the token was valid
-(see {{verification}}), rather than that the token is still
-valid.
+For `kbia`, the identity binding is valid until the KBIA
+expires or is revoked. Users SHOULD obtain a new KBIA and
+publish a new identity binding before the current one expires.
 
-Verifiers MAY apply a local maximum age to identity bindings.
-Users SHOULD refresh their identity binding at least every
-7 days, and MUST refresh it when their `iss` or `sub` changes.
+For the nonce-based types, ID Tokens are short-lived but the
+identity binding is meant to be verifiable after the token
+expires. The verifier therefore checks that the binding was
+created while the token was valid ({{assertion-verify}}),
+rather than that the token is still valid. Verifiers MAY apply
+a local maximum age to such bindings, and users SHOULD refresh
+them at least every 7 days.
+
+For all types, users MUST refresh their identity binding when
+their `iss` or `sub` changes.
 
 # Delivering the Binding Chain {#binding-delivery}
 
@@ -415,10 +540,11 @@ The binding chain is delivered to peers in two ways:
 
 - In full, as a signed chain object on the user's keybinding
   track ({{delivery-mechanism}}). This is the only form that
-  carries the ID Token and revocation and rotation statements.
+  carries the identity assertion and revocation and rotation
+  statements.
 - Partially, inside MLS credentials ({{mls-credential}}),
   which carry the identity binding and the one device binding
-  for the LeafNode, but not the ID Token.
+  for the LeafNode, but not the identity assertion.
 
 ## Verification Architecture
 
@@ -441,8 +567,8 @@ The binding chain is delivered to peers in two ways:
                                                       |
                                                       v
                                           (3) Verify:
-                                              - ID Token valid and
-                                                commits to user key?
+                                              - IdP assertion valid
+                                                and names user key?
                                               - chain, identity and
                                                 device signatures?
                                                       |
@@ -477,8 +603,8 @@ revocations and rotations are learned promptly.
 
 The Provider SHOULD restrict subscription to this track to
 authenticated users permitted to communicate with the
-publisher, since the chain contains the ID Token and its
-claims (see {{privacy}}).
+publisher, since the chain contains the identity assertion and
+its claims (see {{privacy}}).
 
 ## Chain Format {#chain-format}
 
@@ -491,7 +617,7 @@ Each object on the track is a JSON document:
   "user_key": "<current user public key>",
   "seq": 42,
   "issued_at": 1751100000,
-  "id_token": "<ID Token, JWS compact serialization>",
+  "assertion": "<identity assertion, see assertion types>",
   "entries": [
     {
       "type": "identity_binding",
@@ -499,8 +625,8 @@ Each object on the track is a JSON document:
       "user_key": "...",
       "oauth_issuer": "https://idp.example.com",
       "oauth_subject": "248289761001",
-      "nonce_salt": "...",
-      "id_token_hash": "...",
+      "assertion_type": 1,
+      "assertion_hash": "...",
       "issued_at": 1751000000,
       "signature": "..."
     },
@@ -530,7 +656,8 @@ Each object on the track is a JSON document:
 ~~~
 
 The `entries` array MUST contain exactly one identity binding,
-whose `id_token_hash` matches `id_token`. It contains one
+whose `assertion_hash` is SHA-256 over the ASCII bytes of
+`assertion`. It contains one
 device binding for each currently authorized device, and MAY
 contain device revocations ({{device-revocation}}) and at most
 one key rotation statement ({{key-rotation}}).
@@ -554,37 +681,25 @@ the chain as unverified if any check fails:
 2. If the verifier has previously verified a chain for this
    user, check that `seq` is greater than or equal to the
    highest `seq` seen; a lower `seq` indicates a rollback.
-3. Validate the ID Token signature against the IdP's JWKS
-   {{RFC7519}}. If the signing key identified by the token's
-   `kid` is no longer published, the verifier MAY use a
-   previously cached copy of that key; otherwise the chain is
-   unverified until the user publishes a refreshed identity
-   binding.
-4. Check that the ID Token's `iss` equals `oauth_issuer` and
-   that the issuer is one the verifier accepts for MOCHA.
-5. Check that the ID Token's `sub` equals `oauth_subject`.
-6. Check that the ID Token's `aud` contains the key-binding
-   client ID associated with that issuer ({{token-exposure}}).
-   The verifier does not require `aud` to name itself.
-7. Check that the identity binding's `issued_at` lies between
-   the ID Token's `iat` and `exp`, allowing for clock skew of
-   at most 5 minutes. The token is not required to be
-   unexpired at verification time.
-8. Recompute the commitment from `sig_alg`, `user_key`, and
-   `nonce_salt` ({{key-commitment}}) and check that it equals
-   the ID Token's `nonce` claim.
-9. Check that SHA-256 over the ID Token equals
-   `id_token_hash`, and verify the identity binding signature
-   under `user_key`.
-10. For each device binding, check that its `sig_alg` and
-    `user_key` equal the chain's, that its `device_id` is
-    unique within the chain, and verify its signature.
-11. Verify each device revocation and key rotation statement
-    as described in {{device-revocation}} and {{key-rotation}}.
+3. Check that SHA-256 over `assertion` equals the identity
+   binding's `assertion_hash`, and verify the identity binding
+   signature under `user_key`.
+4. Check that `assertion_type` is a type the verifier supports,
+   and validate the assertion as specified for that type in
+   {{assertion-verify}}. This confirms that the IdP issued the
+   assertion for `oauth_issuer` and `oauth_subject` and that it
+   names `user_key`.
+5. Check that `oauth_issuer` is an issuer the verifier accepts
+   for MOCHA.
+6. For each device binding, check that its `sig_alg` and
+   `user_key` equal the chain's, that its `device_id` is
+   unique within the chain, and verify its signature.
+7. Verify each device revocation and key rotation statement
+   as described in {{device-revocation}} and {{key-rotation}}.
 
 If all checks pass, the verifier knows that the IdP
-authenticated the user as (`iss`, `sub`) during a request that
-committed to the user key, and that each listed device key is
+authenticated the user as (`iss`, `sub`) and associated that
+identity with the user key, and that each listed device key is
 authorized by that user key.
 
 # Trust Decisions and the Personal Address Book {#trust-pab}
@@ -639,8 +754,8 @@ binding. The `x-mocha-trust` property is "oauth" or
   +--------+------------------------------+              |
   |  Verify Binding Chain                 |              |
   |  1. Chain and entry signatures        |              |
-  |  2. ID Token (JWKS, iss, sub, aud)    |              |
-  |  3. nonce commits to user key         |              |
+  |  2. IdP assertion (KBIA or ID Token)  |              |
+  |  3. assertion names the user key      |              |
   +--------+------------------------------+              |
            |                                             |
            v                                             |
@@ -659,8 +774,8 @@ The trust decision MAY rely on:
 
 IdP-Based Trust ("oauth"):
 : The verifier trusts the IdP's assertion that the user
-  authenticated as (`iss`, `sub`) while committing to the user
-  key. This is sufficient for most enterprise deployments where
+  authenticated as (`iss`, `sub`) and that the identity
+  assertion names the user key. This is sufficient for most enterprise deployments where
   the IdP is trusted infrastructure, but a compromised IdP can
   impersonate any of its users.
 
@@ -681,8 +796,8 @@ Once the PAB entry exists, a device key is trusted if a valid
 device binding for it under the stored user key is known, from
 the latest verified chain or from an MLS credential
 ({{mls-credential}}), and that device key has not been revoked
-in any verified chain. The full chain, including the ID Token,
-need not be re-verified for each message. The PAB acts as a
+in any verified chain. The full chain, including the identity
+assertion, need not be re-verified for each message. The PAB acts as a
 local trust anchor.
 
 A verifier that receives a newer chain for a stored user key
@@ -722,9 +837,8 @@ If the user key changes, the peer follows {{key-rotation}}.
 When a user rotates their user key while still holding the old
 key, a key-holding device produces:
 
-1. A new identity binding under the new key, from a fresh ID
-   Token whose `nonce` commits to the new key
-   ({{key-commitment}}).
+1. A new identity binding under the new key, from a fresh
+   identity assertion naming the new key ({{oauth-binding}}).
 2. New device bindings for all active devices under the new
    key.
 3. A key rotation statement:
@@ -756,8 +870,8 @@ A peer with the old key in their PAB:
    carry over the existing `x-mocha-trust` level and SHOULD
    notify the user that the key changed.
 
-Because step 2 requires a fresh ID Token committing to the new
-key, an attacker who has stolen the old user key cannot rotate
+Because step 2 requires a fresh identity assertion naming the
+new key, an attacker who has stolen the old user key cannot rotate
 the user to a key of their choosing without also
 authenticating at the IdP as the user.
 
@@ -846,7 +960,7 @@ without network access.
   |  +---------------------------------------------------+|
   |  |  identity_binding:                                ||
   |  |    user_key, oauth_issuer, oauth_subject,         ||
-  |  |    nonce_salt, id_token_hash, sig                 ||
+  |  |    assertion_type, assertion_hash, sig            ||
   |  |                                                   ||
   |  |  device_binding:                                  ||
   |  |    user_key, device_key, device_id, sig           ||
@@ -859,8 +973,8 @@ without network access.
 
 The credential lets a group member verify the chain from the
 MLS signature key to the user key and check the user key
-against their local PAB. It does not carry the ID Token or
-revocation state; those are obtained from the keybinding track
+against their local PAB. It does not carry the identity
+assertion or revocation state; those are obtained from the keybinding track
 ({{delivery-mechanism}}).
 
 This document is normative for the mocha_binding_chain
@@ -890,8 +1004,9 @@ The credential body is encoded as:
     opaque user_key<V>;
     opaque oauth_issuer<V>;
     opaque oauth_subject<V>;
+    uint8 assertion_type;
     opaque nonce_salt<V>;
-    opaque id_token_hash[32];
+    opaque assertion_hash[32];
     uint64 issued_at;
     opaque signature<V>;
   } IdentityBinding;
@@ -1036,16 +1151,27 @@ the attacker to take over the user's identity at peers.
 ## IdP Trust
 
 IdP-based trust is only as strong as the IdP. A compromised
-IdP can issue ID Tokens committing to an attacker's user key,
-and peers relying on IdP-based trust will accept them for new
-contacts. Peers that already hold the user's key detect a new
-key without a valid rotation ({{key-rotation}}). Out-of-band
-fingerprint verification provides trust independent of the IdP
-and SHOULD be used for high-assurance contacts.
+IdP can issue identity assertions naming an attacker's user
+key, and peers relying on IdP-based trust will accept them for
+new contacts. Peers that already hold the user's key detect a
+new key without a valid rotation ({{key-rotation}}).
+Out-of-band fingerprint verification provides trust independent
+of the IdP and SHOULD be used for high-assurance contacts.
+
+A key transparency system {{KEYTRANS}} would let a user's own
+devices detect user keys published for them that they did not
+create, exposing a misbehaving IdP or Provider. Integrating key
+transparency with MOCHA is left to a future document.
 
 ## ID Token Exposure and Replay {#token-exposure}
 
-The binding chain publishes the user's ID Token. If a service
+This section applies to the nonce-based assertion types
+(`oidc_nonce` and, to a lesser degree, `oidc_nonce_gq`). A KBIA
+is not a bearer token and is explicitly typed so that relying
+parties reject it as authentication {{KBIA}}.
+
+With `oidc_nonce`, the binding chain publishes the user's ID
+Token. If a service
 accepted that token as a bearer credential, anyone who can read
 the keybinding track could replay it. To prevent this:
 
@@ -1060,11 +1186,16 @@ the keybinding track could replay it. To prevent this:
 Verifiers learn the key-binding client ID for each accepted
 issuer by means outside the scope of this document.
 
+With `oidc_nonce_gq`, the published token carries a GQ proof in
+place of the IdP's signature and is not accepted by relying
+parties that verify ID Token signatures, but the key-binding
+client ID requirement above still applies.
+
 ## Freshness and Rollback
 
 Relays see binding chain traffic but cannot forge signatures:
-the chain contains only public keys, signatures, and the ID
-Token, and no private key material is transmitted. A relay can,
+the chain contains only public keys, signatures, and the
+identity assertion, and no private key material is transmitted. A relay can,
 however, withhold updates or replay an older chain to hide a
 revocation or rotation. The chain `seq` lets verifiers reject
 older chains than one already seen, but cannot reveal an update
@@ -1075,12 +1206,13 @@ maximum age as unverified.
 
 ## Privacy {#privacy}
 
-The ID Token typically contains personal data such as name and
-email address, and the chain reveals the number of the user's
-devices and their DevIDs. Providers SHOULD limit subscription
-to the keybinding track ({{delivery-mechanism}}), and users
-SHOULD request only the claims needed for key binding when
-authenticating with the key-binding client ID.
+The identity assertion typically contains personal data such
+as name and email address, and the chain reveals the number of
+the user's devices and their DevIDs. Providers SHOULD limit
+subscription to the keybinding track ({{delivery-mechanism}}).
+Users SHOULD request only the claims needed for key binding,
+and SHOULD use the selectively disclosable KBIA form {{KBIA}}
+where the IdP supports it.
 
 # IANA Considerations
 
@@ -1095,6 +1227,13 @@ Credential Types" registry established by {{MLS}}:
 
 Implementations prior to assignment use the private-use value
 0xF001.
+
+## MOCHA Identity Assertion Types
+
+IANA is requested to create a "MOCHA Identity Assertion Types"
+registry with the initial contents of {{assertion-types}}.
+Values are 8-bit unsigned integers; 0 is reserved. New values
+are assigned by Specification Required.
 
 ## URI Scheme
 
