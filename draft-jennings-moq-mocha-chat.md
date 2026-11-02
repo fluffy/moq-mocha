@@ -792,7 +792,7 @@ Typing indicators:
 
 ## Subscribing to Availability
 
-Participants subscribe (SUBSCRIBE_NAMESPACE) to the availability
+Participants subscribe (SUBSCRIBE_TRACKS) to the availability
 namespace to receive availability and typing updates from all
 channel members. This follows the same pattern as roster
 subscription — joining a channel implicitly subscribes

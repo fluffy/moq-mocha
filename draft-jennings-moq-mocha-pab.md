@@ -37,6 +37,7 @@ author:
 normative:
   MoQTransport: I-D.draft-ietf-moq-transport
   MOCHA-ARCH: I-D.draft-jennings-moq-mocha-arch
+  MOCHA-IDENTITY: I-D.draft-jennings-moq-mocha-identity
   RFC7095:
   RFC8259:
 
@@ -218,8 +219,8 @@ belonging to the same user. This is achieved by subscribing to
 the PAB namespace:
 
 ~~~
-  SUBSCRIBE_NAMESPACE ("mocha_v1", <Provider>, <OrgID>,
-                       "pab", <UserID>)
+  SUBSCRIBE_TRACKS ("mocha_v1", <Provider>, <OrgID>,
+                    "pab", <UserID>)
 ~~~
 
 The relay delivers objects from all device tracks within this

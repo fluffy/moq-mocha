@@ -226,9 +226,10 @@ Relays MAY enforce rate limits and drop excess objects.
 
 # Receiving Reactions {#receiving}
 
-A participant discovers reaction tracks via
-SUBSCRIBE_NAMESPACE on the reactions namespace prefix,
-then subscribes to the announced tracks.
+A participant subscribes to reaction tracks via
+SUBSCRIBE_TRACKS on the reactions namespace prefix, which
+delivers a PUBLISH for each track under it, including tracks
+created later.
 
 ## Processing Message-Targeted Reactions
 
