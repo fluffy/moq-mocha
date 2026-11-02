@@ -57,7 +57,7 @@ are created, how members are added and removed, how key material
 is distributed over MOQT tracks, and how the MLS Delivery
 Service is realized in a fully distributed manner using MOQT
 publish/subscribe, including committer election, failover, and
-fork resolution. For large channels, Partial MLS light clients
+fork resolution. For large channels, Partial MLS partial clients
 avoid requiring every member to store the full group state. An
 optional profile represents each user as a single MLS virtual
 client shared by the user's devices.
@@ -82,7 +82,7 @@ does not depend on any central server.
 
 For large channels where full MLS group membership becomes
 impractical, this document specifies the use of Partial MLS
-{{MLS-PARTIAL}} light clients, which participate in a group
+{{MLS-PARTIAL}} partial clients, which participate in a group
 without storing the full ratchet tree.
 
 Credentials used within MLS embed the binding chain defined in
@@ -127,9 +127,9 @@ Committer:
   Proposals and publishing Commits. Only the committer
   advances the group epoch.
 
-Full Client, Light Client:
+Full Client, Partial Client:
 : A full client stores the complete ratchet tree of a group.
-  A light client {{MLS-PARTIAL}} does not; see
+  A partial client {{MLS-PARTIAL}} does not; see
   {{partial-mls}}.
 
 
@@ -221,14 +221,16 @@ The Type field values are:
 | 0x02  | Commit               |
 | 0x03  | Welcome              |
 | 0x04  | KeyPackage           |
-| 0x05  | Light client annotation ({{partial-mls}}) |
+| 0x05  | AnnotatedCommit ({{partial-mls}}) |
+| 0x06  | AnnotatedWelcome ({{partial-mls}}) |
+| 0x07  | SenderAuthenticatedMessage ({{partial-mls}}) |
 
 This prefix allows receivers to quickly dispatch messages,
 including PrivateMessage handshake messages whose content type
 is encrypted. For types 0x01 through 0x04, the MLS Message
 field contains the unmodified MLSMessage struct as defined in
-{{MLS}}, Section 6. For type 0x05, it contains a light client
-annotation as defined in {{MLS-PARTIAL}}. A receiver MUST
+{{MLS}}, Section 6. For types 0x05 through 0x07, it contains
+the corresponding structure defined in {{MLS-PARTIAL}}. A receiver MUST
 discard an object whose Type does not match the decoded
 message. Objects on `keepalive_v1_` and `tree_v1_` tracks use
 the formats defined in {{keep-alive}} and {{upgrade}}.
@@ -310,7 +312,7 @@ it from the Welcome.
 
 Full clients signal that they are full clients with an empty
 LeafNode extension of type mocha_full_client (TBD4). A member
-that changes between full and light client updates its leaf
+that changes between full and partial client updates its leaf
 to add or remove this extension. Because the extension is in
 the LeafNode, all full clients agree on which members are
 eligible to become committer ({{committer-failover}}).
@@ -410,10 +412,10 @@ Full clients accept a failover Commit only from the member
 selected by this rule. Because all full clients evaluate the
 same rule over the same group state and roster, they arrive at
 the same new committer without explicit coordination, unless
-they are partitioned ({{forks}}). Light clients cannot
+they are partitioned ({{forks}}). Partial clients cannot
 evaluate the rule, since they do not hold all leaves; they
 accept a valid failover Commit and learn the new committer
-from the GroupContext (see {{light-trust}}). The keep-alive interval SHOULD be
+from the GroupContext (see {{partial-trust}}). The keep-alive interval SHOULD be
 long enough to tolerate transient network disruptions but
 short enough to avoid blocking group operations.
 
@@ -581,7 +583,7 @@ track, in the same MOQT group as the Commit. A joining device
 subscribes to the channel's MLS namespace (SUBSCRIBE_TRACKS)
 before publishing its KeyPackage, and identifies its Welcome
 by finding the KeyPackageRef of its own KeyPackage in the
-Welcome's `secrets` ({{MLS}}). No
+Welcome's `secrets` ({{MLS}}, Section 12.4.3.1). No
 recipient identifier is exposed to relays.
 
 
@@ -716,121 +718,153 @@ The committer refreshes its own leaf by including an
 UpdatePath in a Commit rather than by an Update Proposal.
 
 
-# Light Clients for Large Channels {#partial-mls}
+# Partial Clients for Large Channels {#partial-mls}
 
 For channels with many members (hundreds or thousands), full
 MLS becomes expensive: every member must store the ratchet
 tree and process every Commit, whose cost grows with group
-size. Partial MLS {{MLS-PARTIAL}} defines light clients, which
-participate in a group without storing the full ratchet tree.
-A light client stores only its own leaf and the information
-needed to process Commits along its own path.
+size. Partial MLS {{MLS-PARTIAL}} defines partial clients,
+which participate in a group without downloading or
+maintaining the full ratchet tree. A partial client stores
+only the decryption keys for the nodes on its direct path, and
+learns about other members through membership proofs.
 
-This section specifies how light clients operate in MOCHA. The
-data structures exchanged with light clients, and how light
-clients validate them, are defined in {{MLS-PARTIAL}}.
+This section specifies how partial clients operate in MOCHA.
+The data structures exchanged with partial clients
+(MembershipProof, SenderAuthenticatedMessage, AnnotatedCommit,
+and AnnotatedWelcome), and how partial clients process them,
+are defined in {{MLS-PARTIAL}}.
 
-## Full and Light Clients
+## Full and Partial Clients
 
-Each device chooses whether to act as a full client or a light
-client in each channel group, based on its resources and on
-deployment policy, and signals the choice with the
+Each device chooses whether to act as a full client or a
+partial client in each channel group, based on its resources
+and on deployment policy, and signals the choice with the
 mocha_full_client LeafNode extension ({{committer-ext}}).
-Devices SHOULD act as light clients in channels whose
+Devices SHOULD act as partial clients in channels whose
 membership exceeds a deployment-configured threshold (for
 example, 100 members), unless deployment policy designates
 them as full clients.
 
-The committer MUST be a full client. Deployments SHOULD ensure
-that several members of each large channel act as full
-clients, so that committer failover ({{committer-failover}})
-has eligible candidates. A light client can become a full
-client at any time by obtaining the full ratchet tree
-({{upgrade}}) and then updating its leaf to carry the
-mocha_full_client extension.
+Partial clients cannot create Commits, and therefore cannot
+be the committer. Deployments SHOULD ensure that several
+members of each large channel act as full clients, so that
+committer failover ({{committer-failover}}) has eligible
+candidates.
 
-Light clients can send and receive application messages and
-publish Proposals as usual. They do not produce Commits.
+Partial clients send and receive application messages
+normally. They do not process Proposals that modify the tree
+(Add, Update, and Remove), but they process
+GroupContextExtensions proposals, through which they learn
+changes of committer ({{committer-ext}}).
 
-## Annotated Commits
+## Namespace and Tracks
 
-A light client cannot process a plain Commit, because it
-lacks the tree information needed to verify the Commit and
-locate the path secret encrypted to it. {{MLS-PARTIAL}}
-addresses this with annotations: information produced by a
-full client that lets a specific light client process the
-Commit and verify it against the group's tree hash.
-
-In MOCHA, the committer produces annotations for each Commit.
-Since part of an annotation is specific to each receiving
-light client, annotations are published on per-recipient
-tracks, so that each light client receives only its own. These
-tracks, and the tree track of {{upgrade}}, use a namespace
-separate from the MLS namespace, so that members subscribing
-to the MLS namespace with SUBSCRIBE_TRACKS do not receive
-them:
+Data specific to each partial client, and the ratchet tree of
+{{upgrade}}, use a namespace separate from the MLS namespace,
+so that members subscribing to the MLS namespace with
+SUBSCRIBE_TRACKS do not receive them:
 
 ~~~
-  Namespace: ("mocha_v1", <Provider>, <OrgID>, "mls-light",
+  Namespace: ("mocha_v1", <Provider>, <OrgID>, "mls-partial",
               <TeamID>, <ChannelID>)
-  Track:     annot_v1_<HDevID>_<leaf_index>
+  Tracks:    annot_v1_<HDevID>_<leaf_index>
+             tree_v1_<HDevID>
 ~~~
 
 where `HDevID` is the committer's and `leaf_index` is the
-receiving light client's leaf index. Each object has Type
-0x05 ({{mls-naming}}), is published in the MOQT group of the
-epoch of the corresponding Commit, and contains the
-annotation for that recipient as defined in {{MLS-PARTIAL}}.
-The Commit itself is published on the committer's
-`mls_v1_` track as usual.
+receiving partial client's leaf index. A partial client
+subscribes to the MLS namespace as other members do, and with
+SUBSCRIBE to its own annotation track for the current
+committer. After committer transfer or failover, it subscribes
+to the new committer's annotation track.
 
-A light client subscribes to the MLS namespace as other
-members do, and with SUBSCRIBE to its own annotation track for
-the current committer. It processes each Commit using the
-corresponding annotation. After committer transfer or
-failover, light clients subscribe to the new committer's
-annotation track.
+## Annotated Commits
 
-## Joining as a Light Client
+A partial client cannot process a plain Commit, because it
+lacks the tree information needed to verify the Commit and to
+find the path secret encrypted to it. {{MLS-PARTIAL}} defines
+the AnnotatedCommit, which carries the Commit together with
+the tree hash after the Commit, the index into the resolution
+at which the partial client finds its path secret, and
+membership proofs for the sender and the receiver.
 
-A device joining as a light client is added in the same way
-as a full client ({{lifecycle}}). The committer publishes,
-alongside the Welcome, the additional information that
-{{MLS-PARTIAL}} requires for a light client to initialize its
-state without the full ratchet tree, on the new member's
-annotation track.
+Because the resolution index and the receiver's membership
+proof differ for each partial client, the committer generates
+one AnnotatedCommit per partial client for every Commit. Each
+is published on that partial client's annotation track as an
+object of Type 0x05 ({{mls-naming}}), in the MOQT group of
+the epoch of the Commit. The Commit itself is also published
+on the committer's `mls_v1_` track as usual, for full
+clients.
 
-## Credential Validation by Light Clients
+## Joining as a Partial Client
 
-A light client does not hold the leaves, and therefore the
-credentials, of most members. It MUST validate the credential
-of each member whose messages it processes, using the sender's
-leaf and membership proof as provided under {{MLS-PARTIAL}},
-before presenting that member as verified ({{credentials}}).
-A light client cannot by itself confirm the full membership of
-the group; clients that need to display the complete member
-list SHOULD obtain the full tree.
+A device joining as a partial client is added in the same way
+as a full client ({{lifecycle}}), except that the committer
+also publishes an AnnotatedWelcome ({{MLS-PARTIAL}}) for it.
+The AnnotatedWelcome carries the Welcome together with
+membership proofs for the sender and the joiner, from which
+the joiner obtains its own leaf index and verifies the group's
+tree hash. Since the joiner's leaf index is not known to it
+before joining, the AnnotatedWelcome is published as an object
+of Type 0x06 on the committer's `mls_v1_` track, alongside the
+Welcome, and the joiner identifies it by the KeyPackageRef in
+the enclosed Welcome.
+
+Partial clients cannot join by external Commit
+({{MLS-PARTIAL}}). Where this document uses an external
+Commit, such as to rejoin after a fork ({{forks}}) or to add a
+device to a virtual client ({{virtual-clients}}), a partial
+client uses a KeyPackage instead or first becomes a full
+client.
+
+## Sender Authentication for Partial Clients
+
+A partial client does not hold the leaves, and therefore the
+credentials, of most members. To authenticate the sender of a
+handshake message, it requires the message to be accompanied
+by a membership proof for the sender's leaf. In groups that
+contain partial clients, members SHOULD publish Proposals as
+SenderAuthenticatedMessage ({{MLS-PARTIAL}}) objects of Type
+0x07. A partial client verifies the membership proof against
+the tree hash of the message's epoch, then verifies the
+message using the signature key in the proven leaf, and
+validates that leaf's credential ({{credentials}}) before
+presenting the sender as verified.
+
+A partial client learns other members' identities only on
+demand and cannot by itself confirm the full membership of
+the group. Clients that need to display the complete member
+list SHOULD become full clients.
 
 ## Upgrading to a Full Client {#upgrade}
 
-A light client becomes a full client by obtaining the ratchet
-tree for the current epoch and verifying it against the tree
-hash in the GroupContext. The committer publishes the current
-ratchet tree on the track `tree_v1_<HDevID>` in the
-"mls-light" namespace ({{partial-mls}}), one object per epoch, so that light clients can
-upgrade without contacting another member. The object is
-encrypted with the AEAD of the group's ciphersuite, using as
-key and nonce the first AEAD.Nk and next AEAD.Nn bytes of
-`MLS-Exporter("MOCHA 1.0 tree", "", AEAD.Nk + AEAD.Nn)`, so
-that relays do not learn the group's membership. Since one
-object is encrypted per epoch, the nonce is not reused. Only
-the latest object is current.
+A partial client becomes a full client by obtaining the
+ratchet tree for the current epoch and verifying its
+integrity as a full client would when joining ({{MLS}}).
+It then updates its leaf to carry the mocha_full_client
+extension.
+
+The committer publishes the current ratchet tree on its
+`tree_v1_` track, one object per epoch, so that partial
+clients can upgrade without contacting another member. The
+object is encrypted with the AEAD of the group's ciphersuite,
+using as key and nonce the first AEAD.Nk and next AEAD.Nn
+bytes of `MLS-Exporter("MOCHA 1.0 tree", "", AEAD.Nk +
+AEAD.Nn)`, so that relays do not learn the group's
+membership. Since one object is encrypted per epoch, the nonce
+is not reused. Only the latest object is current.
+
+A full client can become a partial client by deleting its
+copy of the tree and updating its leaf to remove the
+mocha_full_client extension.
 
 ## Status
 
-{{MLS-PARTIAL}} is an early working group draft, and its
-formats and processing rules may change. This section will be
-updated to track it.
+{{MLS-PARTIAL}} is a working group draft, and its formats and
+processing rules may change. This section will be updated to
+track it.
 
 
 # Virtual Clients for Multi-Device Users {#virtual-clients}
@@ -1280,16 +1314,17 @@ the cost of messages sent on the losing branch. Bootstrapping
 with a fresh `group_id` ({{rebootstrap}}) ensures that state
 from different bootstraps is never mixed.
 
-## Light Client Trust {#light-trust}
+## Partial Client Trust {#partial-trust}
 
-Light clients rely on annotations from the committer and
-verify them against the group's tree hash ({{MLS-PARTIAL}}).
+Partial clients rely on AnnotatedCommits from the committer
+and verify them against the group's tree hash
+({{MLS-PARTIAL}}).
 They do not validate the credentials of all members and so
 cannot confirm the full membership of the group; see
 {{partial-mls}}. They also cannot check that a failover
 Commit came from the member selected by the failover rule, so
 a malicious full client could claim the committer role toward
-light clients. Full clients detect such a Commit, and light
+partial clients. Full clients detect such a Commit, and partial
 clients follow the fork resolution of {{forks}} when it
 conflicts with the branch the full clients follow.
 
