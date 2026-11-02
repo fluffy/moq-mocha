@@ -242,6 +242,12 @@ session.
 The Token Service MUST validate the ID Token per {{OIDC}}
 Section 3.1.3.7 (issuer, audience, expiry, signature via JWKS).
 
+ID Tokens issued to the Provider's key-binding client ID are
+published to peers in binding chains ({{MOCHA-KEY-BINDING}}).
+The Token Service MUST NOT accept an ID Token whose `aud`
+contains the key-binding client ID, and the key-binding client
+ID MUST differ from the client ID used for this flow.
+
 ## Guest Authentication
 
 For deployments allowing pseudonymous access:
@@ -786,7 +792,8 @@ These derived identifiers ensure that:
 # Identity Binding and Verification
 
 Peer-to-peer identity verification — the binding of device
-keys to a user key and the user key to an OAuth assertion — is
+keys to a user key and the user key to an OIDC ID Token that
+commits to it — is
 specified in {{MOCHA-KEY-BINDING}}. That document defines how
 the binding chain is constructed, delivered, verified, and how
 trust decisions are recorded in the Personal Address Book

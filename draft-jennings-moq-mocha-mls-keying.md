@@ -660,7 +660,7 @@ virtual client. This profile defines an additional credential
 type:
 
 ~~~
-  credential_type = mocha_virtual_client (0xF002)
+  credential_type = mocha_virtual_client (TBD2)
 
   struct {
     IdentityBinding identity_binding;
@@ -668,18 +668,35 @@ type:
   } MochaVirtualClientCredential;
 
   struct {
-    opaque user_key<32..255>;
-    opaque client_key<32..255>;
+    uint16 sig_alg;
+    opaque user_key<V>;
+    uint16 client_sig_alg;
+    opaque client_key<V>;
     uint64 issued_at;
-    opaque signature<64..255>;
+    opaque signature<V>;
   } VirtualClientBinding;
 ~~~
 
+The IdentityBinding is as defined in {{MOCHA-KEY-BINDING}}.
 The `client_key` is a signature key whose private half is
 shared among the user's devices through the emulation group.
-The `signature` is computed by the user key over the other
-fields. The `client_key` MUST equal the `signature_key` in the
-LeafNode.
+The `client_key` MUST equal the `signature_key` in the
+LeafNode, and `client_sig_alg` MUST be the signature scheme of
+the group's ciphersuite.
+
+The `signature` is computed by the user key using the
+MochaLabeledContent construction of {{MOCHA-KEY-BINDING}},
+with label "VirtualClientBinding" and content:
+
+~~~
+  struct {
+    uint16 sig_alg;
+    opaque user_key<V>;
+    uint16 client_sig_alg;
+    opaque client_key<V>;
+    uint64 issued_at;
+  } VirtualClientBindingTBS;
+~~~
 
 Validation follows {{credentials}}, with the
 VirtualClientBinding taking the place of the DeviceBinding.
@@ -688,7 +705,12 @@ offline validation is unaffected.
 
 A new `client_key` and VirtualClientBinding MUST be issued
 whenever a device is removed from the emulation group
-({{vc-remove-device}}).
+({{vc-remove-device}}). Because the removed device still holds
+the previous `client_key`, only the VirtualClientBinding with
+the highest `issued_at` for a given user key is valid. A member
+that has seen a VirtualClientBinding for a user key MUST reject
+any credential carrying a VirtualClientBinding for the same
+user key with a lower `issued_at`, including in KeyPackages.
 
 ## Participation in Channel Groups
 
@@ -739,10 +761,11 @@ emulation group epoch that includes the new device.
 ## Removing a Device {#vc-remove-device}
 
 To remove a device (for example, when it is lost or
-compromised), a remaining device of the user performs, in
-order:
+compromised), a remaining key-holding device of the user
+({{MOCHA-KEY-BINDING}}) performs, in order:
 
-1. Publishes a device revocation for the removed device
+1. Publishes a new binding chain that removes the device's
+   binding and includes a device revocation for it
    ({{MOCHA-KEY-BINDING}}).
 2. Replaces all outstanding virtual client KeyPackages by
    publishing new objects on its keypackage tracks.
@@ -864,74 +887,35 @@ sender's position in the tree.
 # Credentials {#credentials}
 
 MLS requires each member to present a Credential in their
-LeafNode that binds their identity to their MLS signing key.
-MOCHA uses the mocha_binding_chain credential type defined in
-{{MOCHA-KEY-BINDING}} as the primary credential mechanism.
+LeafNode that binds their identity to their MLS signature key.
+MOCHA uses the mocha_binding_chain credential type as the
+primary credential mechanism, and the mocha_virtual_client
+type ({{vc-credential}}) for virtual clients.
 
-## Binding Chain as MLS Credential
-
-The mocha_binding_chain credential embeds the user's key
-binding chain directly in the MLS LeafNode:
-
-~~~
-  MLS LeafNode
-  +----------------------------------------------------------+
-  |  signature_key: <device public key>                      |
-  |                                                          |
-  |  credential (type: mocha_binding_chain, 0xF001)          |
-  |  +------------------------------------------------------+|
-  |  |  identity_binding:                                   ||
-  |  |    user_key + oauth_subject + id_token_hash + sig    ||
-  |  |                                                      ||
-  |  |  device_binding:                                     ||
-  |  |    user_key + device_key + device_id + sig           ||
-  |  |    (device_key == LeafNode.signature_key)            ||
-  |  +------------------------------------------------------+|
-  +----------------------------------------------------------+
-~~~
-
-This provides a self-contained proof chain from the MLS signing
-key to the user's OAuth identity. The device_key in the
-DeviceBinding MUST equal the signature_key in the LeafNode.
-
-## Credential Validation
-
-When a group member receives a LeafNode (via a Commit, Welcome,
-or KeyPackage), it validates the credential as follows:
-
-1. Extract the DeviceBinding from the credential. Verify that
-   the device_key equals the LeafNode's signature_key.
-
-2. Verify the DeviceBinding signature under the user_key.
-
-3. Verify the IdentityBinding signature under the same
-   user_key.
-
-4. Look up the user_key in the local Personal Address Book
-   (PAB) {{MOCHA-PAB}}.
-
-   - If found: the credential is trusted. The PAB entry's
-     display name is used for the member.
-
-   - If not found: the member fetches the full binding chain
-     from the user's keybinding track
-     ({{MOCHA-KEY-BINDING}}), verifies the OAuth assertion
-     against the IdP's JWKS, and prompts the user for a trust
-     decision. If accepted, the user_key is stored in the PAB.
+The structure and validation of mocha_binding_chain, including
+the PAB lookup and the handling of unverified members, are
+specified normatively in {{MOCHA-KEY-BINDING}} and are not
+repeated here. Members MUST validate every LeafNode they
+receive (via a Commit, Welcome, or KeyPackage) as specified
+there.
 
 ## Offline Validation
 
-This design enables MLS credential validation without network
-access:
+Because the credential is self-contained in the LeafNode and
+the PAB lookup is local, existing group members who already
+have each other's user keys in their PABs verify credentials
+without network access. This is critical for MOCHA's offline
+operation goal: the home server need not be reachable for
+existing group members to verify each other's MLS messages.
 
-- The credential is self-contained in the LeafNode.
-- The PAB lookup is local.
-- Existing group members who already have each other's user
-  keys in their PABs verify credentials entirely offline.
+## Device Revocation
 
-This is critical for MOCHA's offline operation goal: the home
-server need not be reachable for existing group members to
-verify each other's MLS messages.
+When a member learns from a verified binding chain that a
+device key used as a LeafNode `signature_key` in a group has
+been revoked or is no longer listed ({{MOCHA-KEY-BINDING}}),
+it SHOULD publish a Remove Proposal for that leaf as described
+in {{lifecycle}}. The committer MUST NOT commit proposals or
+messages from a leaf whose device key it knows to be revoked.
 
 ## KeyPackage Credentials
 
@@ -943,13 +927,19 @@ new joiner before the Add Commit is issued.
 ## Credential Rotation
 
 When a user rotates their user key ({{MOCHA-KEY-BINDING}}),
-they MUST publish a new KeyPackage with an updated credential
-containing the new identity_binding and device_binding. The
-committer issues a Commit with an Update proposal replacing
-the member's LeafNode with the new credential.
+each of their devices MUST publish new KeyPackages with an
+updated credential containing the new identity_binding and
+device_binding. In each group, each device also publishes an
+Update Proposal carrying a LeafNode with the new credential,
+which the committer commits as described in {{lifecycle}}.
 
-Peers update their PAB entry via the key rotation mechanism
-defined in {{MOCHA-KEY-BINDING}}.
+{{MLS}} requires the application to confirm that a changed
+credential in an Update represents the same client. Members
+MUST accept the new credential only if they have verified a
+key rotation statement from the old user key to the new one,
+and the new binding chain, as specified in
+{{MOCHA-KEY-BINDING}}. Peers update their PAB entry by the
+same mechanism.
 
 
 # Security Considerations
@@ -959,6 +949,14 @@ TODO
 
 # IANA Considerations
 
-This document makes no requests of IANA.
+IANA is requested to add the following entry to the "MLS
+Credential Types" registry established by {{MLS}}:
+
+| Value | Name | Recommended | Reference |
+|:------|:-----|:------------|:----------|
+| TBD2 | mocha_virtual_client | N | This document |
+
+Implementations prior to assignment use the private-use value
+0xF002.
 
 --- back
