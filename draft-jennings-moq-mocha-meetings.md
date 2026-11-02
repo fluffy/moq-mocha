@@ -43,6 +43,7 @@ normative:
   MSF: I-D.draft-ietf-moq-msf
   LOC: I-D.draft-ietf-moq-loc
   SecureObjects: I-D.draft-jennings-moq-secure-objects
+  DTS: I-D.draft-wilaw-moq-dts4moq
 
 informative:
   RFC3550:
@@ -54,10 +55,12 @@ This document specifies how multi-party audio and video
 meetings are conducted using MOCHA (MoQ Open Communication &
 Hosting Architecture). It defines namespace conventions, media
 track design, catalog distribution, and participant flows for
-real-time conferencing over MoQ Transport (MOQT). This
-specification supports both simulcast and scalable video codec
-configurations, enabling meetings ranging from small group
-calls to large-scale conferences.
+real-time conferencing over MoQ Transport (MOQT). The
+specification uses Top-N Track Filters for active speaker
+selection and DTS (Dynamic Track Switching) for per-source
+quality adaptation, enabling meetings to scale from small
+group calls to large conferences while minimizing downstream
+bandwidth.
 
 --- middle
 
@@ -68,12 +71,15 @@ document specifies how participants join, publish, and
 subscribe to audio and video media in a meeting using MOQT's
 publish/subscribe primitives.
 
-Each participant's device publishes its media on per-device
-tracks within a meeting namespace. A catalog track provides
-metadata about available media renditions, enabling
-subscribers to discover and select appropriate streams.
-Active speaker detection and relay-based fan-out allow
-meetings to scale efficiently.
+Each participant publishes media under a namespace that
+encodes the meeting, rendition, and source identity. This
+design enables two orthogonal relay mechanisms: Top-N Track
+Filters select WHICH sources to forward (the N loudest
+speakers), and DTS/SSTS select WHAT quality to forward per
+source (based on available bandwidth). Together they reduce
+downstream bandwidth from O(all participants x all qualities)
+to O(N sources x 1 quality each), with all switching handled
+at the relay.
 
 # Conventions and Definitions
 
@@ -83,8 +89,8 @@ This document uses terminology and architecture defined in
 {{MOCHA-ARCH}}, including Provider, Organization, Team,
 Channel, and Device. The MOQT transport primitives
 (Track, Group, Object, Namespace, Relay) are defined in
-{{MoQTransport}}. HClientID and HDevID are defined in
-{{MOCHA-IDENTITY}}.
+{{MoQTransport}}. DTS and Switching Sets are defined in
+{{DTS}}.
 
 The following additional terms are used:
 
@@ -93,89 +99,101 @@ MeetingID:
   channel. A new MeetingID is assigned each time a meeting
   is started in a channel.
 
+SourceID:
+: An identifier for a media source (participant device)
+  within a meeting. Used as a namespace tuple element to
+  scope tracks per source.
+
 RenditionID:
 : An identifier for a specific media encoding variant
-  (e.g., resolution, bitrate, codec profile).
+  (e.g., "720p", "360p", "180p"). Used as a namespace
+  tuple element to scope tracks per quality level.
 
 Catalog:
 : An MSF {{MSF}} catalog track describing the available
   media renditions published by a device.
 
+Top-N Track Filter:
+: A SUBSCRIBE_TRACKS parameter that instructs the relay
+  to forward only the N tracks with the highest value of
+  a specified object property (LOUDNESS). See {{top-n}}.
+
+DTS (Dynamic Track Switching):
+: A relay mechanism that selects one rendition per source
+  within a switching set based on available bandwidth.
+  See {{dts-ssts}}.
+
+SSTS (Switching Set Track Selection):
+: The subscriber-side assignment of tracks into switching
+  sets, enabling DTS to operate per-source.
+
+LOUDNESS:
+: An object property carried on video objects indicating
+  the current voice activity level of the source.
+  Publishers start a new group when they begin speaking.
+
 Active Speaker:
 : The participant currently producing the most significant
-  audio activity, as determined by the audio_level object
+  audio activity, as determined by the LOUDNESS object
   property and Top-N Track Filter selection.
 
 # Meeting Namespace {#meeting-namespace}
 
 ## Identifier Derivation {#id-derivation}
 
-The HClientID and HDevID used in namespace tuples and
-track names are derived per {{MOCHA-IDENTITY}},
-Section "Identifier Derivation".
+The SourceID used in namespace tuples is derived per
+{{MOCHA-IDENTITY}}, Section "Identifier Derivation".
 
 ## Media Namespace
 
-The media namespace groups all real-time audio and video tracks
-for a single meeting instance. All devices participating in
-the same meeting publish and subscribe to tracks under this
-common namespace, allowing the relay to perform fan-out,
-caching, and track filtering scoped to that meeting.
+The media namespace encodes the meeting, rendition, and
+source identity as namespace tuples. This design ensures
+that each namespace contains exactly one track per source
+at a given rendition, enabling SUBSCRIBE_TRACKS with
+prefix matching to operate on a single rendition across
+all sources.
 
-Media tracks for a meeting use the following namespace tuple:
+Media tracks use the following namespace tuple:
 
 ~~~
   ("mocha_v1", <Provider>, <OrgID>, "media",
-   <TeamID>, <ChannelID>, <MeetingID>, <HClientID>)
+   <TeamID>, <ChannelID>, <MeetingID>,
+   <RenditionID>, <SourceID>)
 ~~~
 
-For example, a meeting in the "standup" channel of team
-"engineering" at organization "acme":
+The track name is the media type:
 
 ~~~
-  ("mocha_v1", "example.com", "acme", "media",
-   "engineering", "standup", "meeting-2024-05-15-1600",
-   <HClientID>)
+  Track: "video"
+  Track: "audio"
 ~~~
 
-## Media Track Names
-
-Each device publishes media on tracks within the meeting
-namespace. Track names encode the media type, rendition,
-and device identity:
-
-Audio tracks:
+For example, Alice publishing three video qualities and
+audio in the "standup" channel of team "eng" at "acme":
 
 ~~~
-  audio-<RenditionID>-<HDevID>
+  NS: ("mocha_v1", "example.com", "acme", "media",
+       "eng", "standup", "mtg-2024-05-15", "720p", "alice")
+  Track: "video"
+
+  NS: ("mocha_v1", "example.com", "acme", "media",
+       "eng", "standup", "mtg-2024-05-15", "360p", "alice")
+  Track: "video"
+
+  NS: ("mocha_v1", "example.com", "acme", "media",
+       "eng", "standup", "mtg-2024-05-15", "180p", "alice")
+  Track: "video"
+
+  NS: ("mocha_v1", "example.com", "acme", "media",
+       "eng", "standup", "mtg-2024-05-15", "audio", "alice")
+  Track: "opus48k"
 ~~~
 
-Video tracks:
-
-~~~
-  video-<RenditionID>-<HDevID>
-~~~
-
-HClientID and HDevID are derived per {{id-derivation}}.
-
-For example, if Alice's device has HDevID "alice-laptop-1"
-and publishes two video renditions:
-
-~~~
-  Namespace: ("mocha_v1", "example.com", "acme", "media",
-              "engineering", "standup", "meeting-2024-05-15-1600",
-              <HClientID>)
-
-  Track: audio-opus48k-<HDevID>
-  Track: video-720p-<HDevID>
-  Track: video-360p-<HDevID>
-~~~
-
-The RenditionID values used in track names (e.g., "opus48k",
-"720p", "360p") correspond to rendition entries in the
-device's catalog (see {{catalog-format}}). Subscribers
-consult the catalog to discover which renditions are
-available before subscribing to specific media tracks.
+This structure enables prefix-based subscriptions. A
+SUBSCRIBE_TRACKS with prefix (..., "mtg-2024-05-15", "720p")
+matches all sources' 720p video tracks — exactly one track
+per source — making Top-N track filtering deterministic
+regardless of object arrival order.
 
 ## Catalog Namespace {#catalog-namespace}
 
@@ -191,10 +209,8 @@ Catalog tracks use a separate namespace tuple:
 
 ~~~
   ("mocha_v1", <Provider>, <OrgID>, "catalog",
-   <TeamID>, <ChannelID>, <MeetingID>, <HClientID>)
+   <TeamID>, <ChannelID>, <MeetingID>, <SourceID>)
 ~~~
-
-HClientID and HDevID are derived per {{id-derivation}}.
 
 ## Catalog Track Names
 
@@ -202,16 +218,15 @@ Each device publishes a catalog describing its available
 renditions:
 
 ~~~
-  catalog-<HDevID>
+  Track: "catalog"
 ~~~
 
 For example:
 
 ~~~
-  Namespace: ("mocha_v1", "example.com", "acme", "catalog",
-              "engineering", "standup", "meeting-2024-05-15-1600",
-              <HClientID>)
-  Track: catalog-<HDevID>
+  NS: ("mocha_v1", "example.com", "acme", "catalog",
+       "eng", "standup", "mtg-2024-05-15", "alice")
+  Track: "catalog"
 ~~~
 
 # Media Track Design {#media-design}
@@ -240,24 +255,29 @@ resolution or quality level.
 ### Video Object Mapping
 
 ~~~
-  Track: video-720p-alice-laptop-1
+  NS: (..., "720p", "alice")  Track: "video"
     |
     +-- Group 1 (GOP / keyframe boundary)
-    |   +-- Object 0: I-frame
-    |   +-- Object 1: P-frame
-    |   +-- Object 2: P-frame
+    |   +-- Object 0: I-frame  [LOUDNESS=82]
+    |   +-- Object 1: P-frame  [LOUDNESS=82]
+    |   +-- Object 2: P-frame  [LOUDNESS=80]
     |   ...
     |
     +-- Group 2 (next GOP)
-    |   +-- Object 0: I-frame
+    |   +-- Object 0: I-frame  [LOUDNESS=90]
     |   ...
 ~~~
 
 * Each encoded video frame is packaged as a LOC container
   and placed in a single MOQT Object
+* Each video object carries a LOUDNESS property indicating
+  the source's current voice activity level; this enables
+  Top-N filtering at the relay without inspecting audio
 * Group ID increments at each keyframe boundary (GOP). The
   first Group ID is the lower 32 bits of the current wall
-  clock time in milliseconds
+  clock time in milliseconds. Publishers MUST start a new
+  group when they begin speaking (transition from silent to
+  active) to provide a clean switch point
 * Object IDs are sequential within each group
 * Objects are sent via QUIC Streams for reliable delivery
 
@@ -273,28 +293,152 @@ catalog. Typical variants include:
 | 360p        | 640x360    | 30 fps     | 300-600 Kbps  |
 | 180p        | 320x180    | 15 fps     | 100-200 Kbps  |
 
-## Active Speaker Detection via Top-N Track Filters
+## Top-N Track Filters {#top-n}
 
-Active speaker detection leverages MOQT's Top-N Track Filter
-mechanism on SUBSCRIBE_TRACKS. Rather than requiring a
-separate speaking indicator track, each audio track includes
-an audio_level object property (0-127) representing the
-current voice activity level.
+Top-N Track Filters select WHICH sources to forward. The
+subscriber issues SUBSCRIBE_TRACKS with a TOP_TRACKS_FILTER
+parameter, and the relay evaluates LOUDNESS metadata carried
+on video objects to identify the N loudest sources. Only
+those sources' tracks are forwarded downstream.
 
-Subscribers issue a SUBSCRIBE_TRACKS with a TRACK_FILTER
-parameter selecting the top-N audio tracks by audio_level.
-The relay monitors audio_level properties across all audio
-tracks in the namespace and automatically promotes tracks
-that enter the top-N (sending PUBLISH messages for them)
-and demotes tracks that fall out (ceasing delivery). A
-configurable timeout (TrackFilterTimeout, default 1 second)
-provides damping to avoid rapid switching during brief
-interjections.
+Each publisher carries a LOUDNESS property on its video
+objects indicating current voice activity level. Publishers
+start a new group when they begin speaking, providing a
+clean switch point for the relay.
 
-This approach eliminates the need for dedicated speaking
-indicator tracks, as the relay performs active speaker
-selection natively using the audio_level property on the
-media tracks themselves.
+The subscriber sends one SUBSCRIBE_TRACKS per rendition:
+
+~~~
+  SUBSCRIBE_TRACKS {
+    Prefix: (..., "mtg-2024-05-15", "720p")
+    TOP_TRACKS_FILTER (0x29) {
+      Property: LOUDNESS
+      MaxTopTracks: 4
+    }
+  }
+  SUBSCRIBE_TRACKS {
+    Prefix: (..., "mtg-2024-05-15", "360p")
+    TOP_TRACKS_FILTER { Property: LOUDNESS, MaxTopTracks: 4 }
+  }
+  SUBSCRIBE_TRACKS {
+    Prefix: (..., "mtg-2024-05-15", "180p")
+    TOP_TRACKS_FILTER { Property: LOUDNESS, MaxTopTracks: 4 }
+  }
+~~~
+
+Each prefix matches exactly one track per source at that
+rendition. Top-N is evaluated independently per rendition,
+resulting in the same N sources selected consistently across
+all subscriptions regardless of object arrival order.
+
+When a track's object arrives, the relay evaluates its
+LOUDNESS. If the track proves top-N membership, the relay
+sends a PUBLISH message downstream. When a source falls out
+of the top-N (another source becomes louder), the relay
+sends REQ_UPDATE with FWD=0 for the demoted source and
+PUBLISH with FWD=1 for the promoted source.
+
+## DTS and SSTS {#dts-ssts}
+
+DTS (Dynamic Track Switching) and SSTS (Switching Set Track
+Selection) select WHAT quality to forward per source. While
+Top-N decides which sources are active, DTS picks one
+rendition per source based on available bandwidth.
+
+Top-N evaluates first, then DTS operates within the
+selected sources.
+
+### Switching Sets
+
+After the relay sends PUBLISH messages for a source's
+tracks (one per rendition), the subscriber responds with
+PUBLISH_OK including a SWITCHING-SET-ASSIGNMENT. Each
+switching set groups the renditions of a single source:
+
+~~~
+  Set 1 (alice): 720p (thr=2000) | 360p (thr=1000) | 180p (thr=500)
+  Set 2 (bob):   720p (thr=2000) | 360p (thr=1000) | 180p (thr=500)
+  Set 3 (carol): 720p (thr=2000) | 360p (thr=1000) | 180p (thr=500)
+  Set 4 (dave):  720p (thr=2000) | 360p (thr=1000) | 180p (thr=500)
+~~~
+
+The relay runs the DTS allocation algorithm to pick ONE
+track per switching set based on the bandwidth budget. DTS
+switches at group boundaries, ensuring no decoder disruption.
+
+### Congestion Adaptation
+
+DTS provides layered congestion defense:
+
+1. Publisher priority: network drops higher-bitrate streams
+   first (720p at pri=3 dropped before 180p at pri=1).
+
+2. DTS algorithm: relay re-runs bandwidth allocation,
+   switching each source to a lower rendition.
+
+3. Rank: if bandwidth is still insufficient, lower-rank
+   switching sets are starved first (least-loud speakers
+   lose quality or get dropped).
+
+No subscriber signaling is needed — the relay handles
+adaptation autonomously.
+
+## Top-N and DTS: Example {#top-n-dts-example}
+
+Consider a 10-person meeting where the subscriber displays
+a 2x2 grid (top-4 speakers). Each publisher sends 3
+simulcast video renditions: 720p (2 Mbps), 360p (1 Mbps),
+180p (500 kbps).
+
+### Step 1: Subscription
+
+The subscriber sends 3 SUBSCRIBE_TRACKS (one per rendition)
+each with TOP_TRACKS_FILTER{LOUDNESS, MaxTopTracks=4}.
+
+### Step 2: Top-N Evaluation
+
+Objects arrive interleaved from all publishers. The relay
+evaluates LOUDNESS per track:
+
+~~~
+  C: L=90, H: L=88, A: L=82, E: L=78
+  D: L=72, F: L=75, B: L=60, ...
+~~~
+
+Top-4 by LOUDNESS: C, H, A, E. The relay sends PUBLISH
+for these 4 sources' tracks (12 total: 4 sources x 3
+renditions).
+
+### Step 3: DTS Quality Selection
+
+The subscriber assigns switching sets and the relay picks
+one quality per set. With a budget of ~1500 kbps per
+source, DTS selects 360p for each:
+
+~~~
+  Forwarded: 360p/C, 360p/H, 360p/A, 360p/E
+  Total: ~4 Mbps downstream
+~~~
+
+Without Top-N + DTS, the subscriber would receive all 30
+video tracks (~60 Mbps).
+
+### Step 4: Speaker Change
+
+When J starts speaking (L=95, starting a new group), the
+relay re-evaluates and J displaces E (L=78). The relay
+sends REQ_UPDATE{E, FWD=0} and PUBLISH{J, FWD=1}. DTS
+assigns J to the switching set that E vacated. The switch
+is group-aligned, giving the subscriber's decoder a clean
+keyframe.
+
+### Only 2 Speakers Active
+
+When only C (L=90) and A (L=82) are speaking and others
+are silent (L<10), each rendition subscription still
+selects the same 2 sources. The subscriber gets 2 active
+grid slots; the remaining 2 are empty until more
+participants speak.
 
 # Catalog Format {#catalog-format}
 
@@ -317,19 +461,23 @@ relationships:
   "generatedAt": 1715788800000,
   "tracks": [
     {
-      "name": "audio-opus48k-alice-laptop-1",
+      "name": "opus48k",
       "namespace": ["mocha_v1", "example.com", "acme",
-                    "media", "engineering", "standup",
-                    "meeting-2024-05-15-1600"],
+                    "media", "eng", "standup",
+                    "mtg-2024-05-15", "audio", "alice"],
       "packaging": "loc",
       "role": "audio",
       "codec": "opus",
       "samplerate": 48000,
       "channelConfig": "mono",
+      "bitrate": 48000,
       "label": "Alice Smith"
     },
     {
-      "name": "video-720p-alice-laptop-1",
+      "name": "video",
+      "namespace": ["mocha_v1", "example.com", "acme",
+                    "media", "eng", "standup",
+                    "mtg-2024-05-15", "720p", "alice"],
       "packaging": "loc",
       "role": "video",
       "codec": "avc1.64001f",
@@ -341,7 +489,10 @@ relationships:
       "label": "Alice Smith"
     },
     {
-      "name": "video-360p-alice-laptop-1",
+      "name": "video",
+      "namespace": ["mocha_v1", "example.com", "acme",
+                    "media", "eng", "standup",
+                    "mtg-2024-05-15", "360p", "alice"],
       "packaging": "loc",
       "role": "video",
       "codec": "avc1.64001f",
@@ -351,15 +502,32 @@ relationships:
       "bitrate": 500000,
       "altGroup": 1,
       "label": "Alice Smith"
+    },
+    {
+      "name": "video",
+      "namespace": ["mocha_v1", "example.com", "acme",
+                    "media", "eng", "standup",
+                    "mtg-2024-05-15", "180p", "alice"],
+      "packaging": "loc",
+      "role": "video",
+      "codec": "avc1.64001f",
+      "width": 320,
+      "height": 180,
+      "framerate": 15,
+      "bitrate": 200000,
+      "altGroup": 1,
+      "label": "Alice Smith"
     }
   ]
 }
 ~~~
 
 Tracks that share an altGroup value represent alternate
-renditions of the same content (simulcast). Subscribers
-select one track from each alternate group based on
-available bandwidth and layout requirements.
+renditions of the same content (simulcast). Each rendition
+lives in its own namespace, enabling prefix-based
+SUBSCRIBE_TRACKS with Top-N filtering per rendition. DTS
+uses switching sets to select one rendition per source
+based on available bandwidth.
 
 ## Catalog Updates
 
@@ -384,48 +552,55 @@ discover and join the meeting.
 ## Joining a Meeting {#join-flow}
 
 When a participant joins an existing meeting, the following
-sequence occurs. In this example, the catalog namespace is
-("mocha_v1", "example.com", "acme", "catalog", "engineering",
-"standup", "meeting-2024-05-15-1600") and the media namespace
-is ("mocha_v1", "example.com", "acme", "media", "engineering",
-"standup", "meeting-2024-05-15-1600").
+sequence occurs. In this example, the catalog namespace
+prefix is (..., "catalog", "eng", "standup", "mtg-2024-05-15")
+and the media namespace prefix is
+(..., "media", "eng", "standup", "mtg-2024-05-15").
 
 ~~~
   Alice                       Relay                  Bob (existing)
     |                           |                        |
     |  1. SUBSCRIBE_NAMESPACE   |                        |
-    |     catalog namespace     |                        |
+    |     catalog prefix        |                        |
     |-------------------------->|                        |
     |                           |                        |
     |  2. NAMESPACE             |                        |
-    |     (catalog-bob-desktop) |                        |
+    |     (...,"catalog","bob") |                        |
     |<--------------------------|                        |
     |                           |                        |
     |  3. SUBSCRIBE             |                        |
-    |     catalog-bob-desktop   |                        |
+    |     Track: "catalog"      |                        |
     |-------------------------->|                        |
     |                           |                        |
     |  4. Catalog object        |                        |
     |     (Bob's renditions)    |                        |
     |<--------------------------|                        |
     |                           |                        |
-    |  5. SUBSCRIBE_TRACKS      |                        |
-    |     media namespace       |                        |
-    |     (Top-N audio_level)   |                        |
+    |  5. 3x SUBSCRIBE_TRACKS   |                        |
+    |     (...,"720p")+TOP_N{4} |                        |
+    |     (...,"360p")+TOP_N{4} |                        |
+    |     (...,"180p")+TOP_N{4} |                        |
     |-------------------------->|                        |
     |                           |                        |
-    |  6. PUBLISH (from relay)  |                        |
-    |     audio-opus48k-bob-desktop                      |
-    |     video-720p-bob-desktop|                        |
+    |  6. PUBLISH (top-N)       |                        |
+    |     (...,"720p","bob")    |                        |
+    |     (...,"360p","bob")    |                        |
+    |     (...,"180p","bob")    |                        |
     |<--------------------------|                        |
     |                           |                        |
-    |  7. PUBLISH media         |                        |
-    |     audio-opus48k-alice-laptop-1                   |
-    |     video-720p-alice-laptop-1                      |
-    |     catalog-alice-laptop-1|                        |
+    |  7. PUBLISH_OK + SET      |                        |
+    |     {bob=1}               |                        |
     |-------------------------->|                        |
     |                           |                        |
-    |  8. Media objects flow    |                        |
+    |  8. PUBLISH media (alice) |                        |
+    |     (...,"720p","alice")  |                        |
+    |     (...,"360p","alice")  |                        |
+    |     (...,"180p","alice")  |                        |
+    |     + catalog             |                        |
+    |-------------------------->|                        |
+    |                           |                        |
+    |  9. Media objects (DTS    |                        |
+    |     selected quality)     |                        |
     |<------------------------->|<---------------------->|
     |                           |                        |
 ~~~
@@ -433,11 +608,10 @@ is ("mocha_v1", "example.com", "acme", "media", "engineering",
 The join sequence in detail:
 
 1. Alice sends SUBSCRIBE_NAMESPACE for the catalog
-   namespace to discover existing participants.
+   namespace prefix to discover existing participants.
 
 2. The relay responds with NAMESPACE messages for each
-   catalog track currently published in the meeting
-   (e.g., catalog-bob-desktop).
+   catalog track currently published in the meeting.
 
 3. Alice sends SUBSCRIBE for each discovered catalog
    track to learn available renditions.
@@ -445,75 +619,72 @@ The join sequence in detail:
 4. Alice receives MSF catalog objects describing each
    participant's media tracks and renditions.
 
-5. Alice sends SUBSCRIBE_TRACKS for the media namespace
-   with a Top-N Track Filter on audio_level. This requests
-   the relay to establish subscriptions for the top-N
-   active audio/video tracks.
+5. Alice sends 3 SUBSCRIBE_TRACKS (one per rendition
+   prefix) each with TOP_TRACKS_FILTER on LOUDNESS.
 
-6. The relay responds by sending PUBLISH messages for the
-   matching tracks (e.g., Bob's audio and video), then
-   begins delivering media objects.
+6. The relay evaluates LOUDNESS and sends PUBLISH for
+   the top-N sources' tracks across all renditions.
 
-7. Alice publishes her own media tracks and catalog,
+7. Alice responds with PUBLISH_OK including switching
+   set assignments. DTS selects one quality per source.
+
+8. Alice publishes her own media tracks and catalog,
    making her media available to other participants.
 
-8. Bidirectional media flows through the relay.
+9. Bidirectional media flows through the relay, with
+   DTS selecting the appropriate quality per source.
 
 ## Active Speaker Switching {#active-speaker}
 
-Active speaker detection uses the audio_level object
-property on audio tracks. The relay monitors these values
-and selects the top-N tracks for delivery based on the
-SUBSCRIBE_TRACKS filter:
+Active speaker switching uses the Top-N Track Filter and
+DTS mechanisms described in {{top-n}} and {{dts-ssts}}.
+The following shows a speaker change where J (L=95)
+displaces E (L=78):
 
 ~~~
-  Alice             Relay              Bob's View
-    |                 |
-    | audio_level: 95 |                 +-----------+
-    |---------------->|  Top-N select   | Alice(AS) |
-    |                 |  by audio_level | Carol     |
-    | Bob level: 20   |                 | Dave      |
-    |                 |                 +-----------+
-    |                 |
-    | audio_level: 110|
-    |---------------->|  Alice exceeds  +-----------+
-    |                 |  threshold for  |*Alice*    |
-    |                 |  >1 sec         | Bob       |
-    |                 |                 | Carol     |
-    |                 |                 +-----------+
+  Subscriber          Relay                Publishers
+    |                   |
+    |                   |<-- obj (...,720p,J) L=95 (new group)
+    |                   |
+    |                   |  Re-eval top-4:
+    |                   |  J=95, C=90, H=88, A=82
+    |                   |  E=78 displaced
+    |                   |
+    |  REQ_UPDATE       |
+    |  (...,*,E) FWD=0  |
+    |<------------------|
+    |                   |
+    |  PUBLISH          |
+    |  (...,*,J) FWD=1  |
+    |<------------------|
+    |                   |
+    |  PUBLISH_OK +     |
+    |  SET{J replaces E}|
+    |------------------>|
+    |                   |
+    |  Objects:         |
+    |  360p,J (DTS)     |
+    |<------------------|
+    |                   |
 ~~~
 
-Subscribers use SUBSCRIBE_TRACKS with a Top-N Track Filter
-to request the top-N media streams ranked by audio_level:
-
-~~~
-  SUBSCRIBE_TRACKS {
-    Prefix: ("mocha_v1", "example.com", "acme", "media",
-             "engineering", "standup", "meeting-2024-05-15-1600")
-    Parameters:
-      TRACK_FILTER: {
-        Property: audio_level
-        MaxTracksSelected: 4
-      }
-  }
-~~~
-
-The relay selects the top-N audio tracks and delivers only
-those to the subscriber. When the active speaker changes,
-the relay sends PUBLISH for the newly promoted track and
-ceases delivery of the demoted track.
+The promoted source (J) started a new group when it began
+speaking, so the relay forwards from a clean group boundary
+with a keyframe. The demoted source (E) completes its
+current group before forwarding stops — no truncated data.
 
 ## Screen Sharing
 
 A participant initiates screen sharing by publishing
-additional video rendition tracks and updating their
-catalog:
+additional tracks under a "screen" rendition namespace
+and updating their catalog:
 
 ~~~
   Alice (sharing)              Relay              Others
     |                            |                  |
     | Update catalog:            |                  |
-    |  + video-screen-1080p-alice-laptop-1          |
+    |  + (...,"1080p","alice")   |                  |
+    |    Track: "screen"         |                  |
     |--------------------------->|                  |
     |                            |                  |
     | Publish screen video       |                  |
@@ -522,13 +693,18 @@ catalog:
     |                            |----------------->|
     |                            |                  |
     |                            |  SUBSCRIBE       |
-    |                            |  video-screen-*  |
+    |                            |  (...,"1080p","alice")
+    |                            |  Track: "screen" |
     |                            |<-----------------|
     |                            |                  |
     | Screen frames              |  Fan-out         |
     |--------------------------->|----------------->|
     |                            |                  |
 ~~~
+
+Screen sharing tracks are not subject to Top-N filtering;
+subscribers explicitly subscribe to them via direct
+SUBSCRIBE after discovering them through catalog updates.
 
 ## Late Join {#late-join}
 
@@ -662,12 +838,16 @@ Relays MUST NOT deliver a participant's own media back to
 them. The relay supresses self-delivery based on
 FullTrackName and Track alias.
 
-## Track Filtering
+## Top-N Track Filtering and DTS
 
-Relays support track filtering based on properties like
-speaking level, enabling active speaker selection without
-requiring subscribers to receive all tracks and filter
-locally.
+Relays implement Top-N Track Filtering ({{top-n}}) and
+DTS/SSTS ({{dts-ssts}}) to select which sources and what
+quality to forward. The relay evaluates LOUDNESS metadata
+on incoming objects to maintain the top-N set, sends
+PUBLISH/REQ_UPDATE to adjust the subscriber's view, and
+runs the DTS bandwidth allocation algorithm to pick one
+rendition per switching set. All switching occurs at group
+boundaries for clean decoder transitions.
 
 # Security Considerations
 
