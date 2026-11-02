@@ -3,7 +3,7 @@ title: "OAuth 2.0 Key-Bound Identity Assertions"
 abbrev: "Key-Bound Identity Assertions"
 category: std
 
-docname: draft-nandakumar-oauth-key-bound-id-00
+docname: draft-jennings-oauth-key-bound-id-00
 submissiontype: IETF
 number:
 date:
@@ -24,6 +24,11 @@ venue:
   arch: "https://mailarchive.ietf.org/arch/browse/oauth/"
 
 author:
+  -
+    fullname: Cullen Jennings
+    organization: Cisco
+    email: fluffy@iii.ca
+
   -
     fullname: Suhas Nandakumar
     organization: Cisco

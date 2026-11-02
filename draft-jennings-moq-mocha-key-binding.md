@@ -48,7 +48,7 @@ normative:
   RFC7095:
   RFC7519:
   RFC8446:
-  KBIA: I-D.draft-nandakumar-oauth-key-bound-id
+  KBIA: I-D.draft-jennings-oauth-key-bound-id
 
 informative:
   MOCHA-MLS-KEYING: I-D.draft-jennings-moq-mocha-mls-keying
