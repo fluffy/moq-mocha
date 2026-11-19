@@ -76,6 +76,8 @@ informative:
   SD-JWT-VC: I-D.draft-ietf-oauth-sd-jwt-vc
   KEYTRANS: I-D.draft-ietf-keytrans-architecture
   ABCA: I-D.ietf-oauth-attestation-based-client-auth
+  OPR: I-D.aravind-oauth-operator-of-record
+  CONDITION-KEYS: I-D.winmagic-oauth-condition-bound-keys
   WIMSE-CREDS: I-D.ietf-wimse-workload-creds
   CIBA:
     title: "OpenID Connect Client-Initiated Backchannel Authentication Flow - Core 1.0"
@@ -119,7 +121,9 @@ explicitly typed so that they cannot be confused with access or
 ID Tokens, are issued only for keys that sign at the user's
 direction, never for keys held by an agent acting on its own,
 and optionally attest that the key requires user
-verification and support selective disclosure.
+verification and support selective disclosure. The bound key
+can endorse further keys that are short-lived and scoped to a
+session, a dialog, or an audience.
 
 --- middle
 
@@ -177,6 +181,12 @@ cannot make them. A KBIA can also state that the key signs only
 after the End-User is verified ({{uv}}), so that a signature shows
 the End-User was present.
 
+A KBIA binds one key, which can stay in protected storage and
+sign rarely. That key can endorse further keys, each short-lived
+and limited to one use, such as one session, one dialog, or one
+audience, so that the keys applications use day to day are not
+long-lived ({{endorsements}}).
+
 ## Goals
 
 The goal is an assertion, issued by an existing OAuth 2.0
@@ -197,7 +207,7 @@ Status List) rather than defining new protocols.
   holds its authority in delegation credentials that name it as
   actor {{RFC8693}}.
 - Detecting a compromised IdP that issues KBIAs for keys the
-  user does not hold; see {{idp-compromise}}.
+  user does not hold.
 - Replacing general-purpose verifiable credential ecosystems.
 
 # Conventions and Definitions
@@ -334,11 +344,13 @@ associated issuance protocol, credential type metadata, and
 trust frameworks. Enterprise IdPs and communication clients
 generally do not otherwise need this machinery.
 
-A KBIA can be viewed as a narrowly profiled holder-bound
-credential. Should the working group prefer it, the KBIA could
-instead be defined as an SD-JWT VC type issued through the
-token endpoint, retaining the issuance flow and verification
-rules defined here.
+A KBIA is, in effect, a holder-bound credential with a narrow
+profile: the End-User's own identity provider is the issuer, it
+carries one identity and one key, and it needs no wallet or
+presentation protocol. The same assertion could also be
+expressed as an SD-JWT VC type issued at the token endpoint,
+with the issuance flow and verification rules of this document
+unchanged.
 
 ## Approaches Without an IdP
 
@@ -657,6 +669,11 @@ End-User's own, such as approving an action or setting the limits
 of a task. An agent can relay a KBIA and signatures made with its
 bound key, but cannot make them.
 
+A claim that records whether a human or an agent operated a
+presentation {{OPR}} marks the distinction after the fact. The rules
+here keep an agent from making the End-User's signature in the first
+place.
+
 # User Verification {#uv}
 
 A signature by the bound key shows that the key was used, not
@@ -666,7 +683,9 @@ application in which a signature stands for the End-User's
 decision, such as an approval ({{uses}}), needs a key that signs
 only after the End-User is verified, as platform authenticators,
 hardware-backed keys with user-authentication requirements, and
-wallets unlocked by a passkey do.
+wallets unlocked by a passkey do. Keys that exist only while the
+user, platform, and policy conditions hold {{CONDITION-KEYS}} are
+another way to provide it.
 
 The AS includes `key_uv` with the value `true` only when it has
 verified, from a key attestation for the bound key, that the key
@@ -743,7 +762,14 @@ and issued it to a client that acts at the End-User's direction
 ({{key-holder}}). It does not, by itself, tell the verifier that the party
 presenting the KBIA holds the bound key. A verifier MUST NOT
 treat possession or presentation of a KBIA as authentication
-of the presenter. Applications establish that a peer holds the
+of the presenter.
+
+Resource servers and relying parties MUST reject a JWT whose
+`typ` is `kbia+jwt` or `kbia+sd-jwt` as an access token, ID
+Token, or other authentication or authorization credential. A
+verifier MUST NOT accept as the End-User's key a key that appears
+only in a credential whose subject or actor is an agent
+({{key-holder}}). Applications establish that a peer holds the
 bound key by verifying signatures made with it, for example a
 signature over a verifier-chosen challenge, over application
 messages, or over a credential such as an MLS LeafNode.
@@ -755,6 +781,153 @@ application profile specifies ({{uv}}).
 
 Verifiers MAY identify the bound key by its JWK thumbprint
 {{RFC7638}}, for example for display and out-of-band comparison.
+
+# Key Endorsements {#endorsements}
+
+A KBIA binds one key. An End-User often needs more: one key per
+device, keys that rotate without a new KBIA, keys that others
+can encrypt to while the End-User is offline, and keys that are
+valid only for one session, dialog, or counterpart, so that a
+leaked key is of little use. A key endorsement provides these,
+in the way that an MLS KeyPackage {{RFC9420}} provides keys that
+others use under a member's credential.
+
+A key endorsement is a JWT signed with the bound key of a KBIA
+(the identity key) that binds one further key (the endorsed
+key) to a stated use and scope:
+
+~~~
+KBIA          signed by the AS:            sub -> identity key
+endorsement   signed by the identity key:  identity key -> endorsed
+                                           key, use, scope, exp
+use           made with the endorsed key
+~~~
+
+## Format
+
+The JOSE header MUST contain `typ` with the value
+`kbia-endorsement+jwt` and `alg` identifying an asymmetric
+algorithm. The payload contains:
+
+`kbia_jkt`:
+: REQUIRED. The JWK SHA-256 Thumbprint {{RFC7638}} of the identity
+  key, which is the key in the KBIA's `cnf`.
+
+`cnf`:
+: REQUIRED. A confirmation claim {{RFC7800}} with a `jwk` member
+  containing the endorsed key.
+
+`key_use`:
+: REQUIRED. A JSON array of values from the KBIA Key Uses
+  registry ({{iana-key-uses}}) stating what the endorsed key may
+  be used for: `mls`, as an MLS LeafNode signature key;
+  `approval`, to sign approvals and other statements of the
+  End-User's decision; `presentation`, to prove possession to a
+  verifier; or `encryption`, as a key that others encrypt to.
+
+`iat`, `exp`:
+: REQUIRED. `exp` MUST NOT be later than the KBIA's `exp`.
+
+`jti`:
+: REQUIRED. A unique identifier for the endorsement.
+
+`key_ctx`:
+: OPTIONAL. A string identifying the one context in which the
+  endorsed key may be used, such as a session identifier, an MLS
+  group identifier, or the identifier of a dialog among agents,
+  in a form the application profile defines.
+
+`aud`:
+: OPTIONAL. The verifiers that may accept the endorsed key.
+
+`one_time`:
+: OPTIONAL. `true` if the endorsed key may be used once, as for
+  an encryption key that one sender uses, in the way MLS
+  KeyPackages are used once.
+
+`key_uv`:
+: OPTIONAL. `true` if the endorsing client states that the
+  endorsed key signs only after user verification.
+
+For example, an endorsement of a key that the End-User's phone
+uses only in one dialog, for a few hours:
+
+~~~json
+{
+  "kbia_jkt": "NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs",
+  "cnf": {
+    "jwk": {
+      "kty": "EC",
+      "crv": "P-256",
+      "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+      "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"
+    }
+  },
+  "key_use": [ "mls", "presentation" ],
+  "key_ctx": "d-17",
+  "iat": 1762041600,
+  "exp": 1762056000,
+  "jti": "end-91b2"
+}
+~~~
+
+## Endorsing
+
+The identity key's holder MUST endorse only keys held by clients
+that act at the End-User's direction ({{key-holder}}), and MUST
+NOT endorse a key held by an agent. An endorsed key MUST NOT
+endorse further keys. Endorsements SHOULD be as short-lived and
+as narrowly scoped as their use allows. Endorsements for
+`encryption` with `one_time` can be published in advance, for
+example in a directory, and are handed out once each.
+
+## Verifying
+
+A verifier that receives an endorsed key with its endorsement
+and the KBIA:
+
+1. validates the KBIA ({{verification}});
+2. checks the endorsement's `typ`, verifies its signature with
+   the KBIA's `cnf` key, and checks that `kbia_jkt` is the
+   thumbprint of that key;
+3. checks `iat` and `exp`, and that `exp` is not later than the
+   KBIA's `exp`;
+4. checks that `key_use` contains the use being made of the key;
+5. if `key_ctx` is present, checks that it identifies the context
+   in which the key is being used, and rejects the key in any
+   other; and if `aud` is present, checks that it includes the
+   verifier; and
+6. if `one_time` is present, rejects a second use, which for an
+   `encryption` key means that a sender MUST NOT encrypt to it
+   twice.
+
+The verifier then relies on the endorsed key as it would on the
+bound key, within that use and scope. Revoking the KBIA revokes
+every endorsement under it; a single endorsement ends at its
+`exp`.
+
+`key_uv` in an endorsement is the endorsing client's statement,
+not the AS's ({{uv}}). A verifier that requires `key_uv` for an
+approval accepts it from an endorsement only if its policy trusts
+that statement, and otherwise requires a signature with the
+identity key. A key that is unlocked once and then signs many
+approvals shows the End-User's presence only for the first, so
+approvals use a key that requires user verification for every
+signature.
+
+## Endorsement Is Not Delegation
+
+An endorsement says that the endorsed key is the End-User's. A
+delegation credential says that another party's key acts for the
+End-User. Although both are signatures over another key with a
+scope and an expiry, they mean opposite things, and a verifier
+MUST NOT accept one as the other: a JWT with `typ`
+`kbia-endorsement+jwt` MUST NOT be accepted as a delegation
+credential, and a delegation credential MUST NOT be accepted as
+an endorsement. Authority for an agent, even for one session and
+a short time, is conveyed by a delegation credential that names
+the agent's own key {{RFC8693}}, never by endorsing a key for the
+agent to hold.
 
 # Authorization Server Metadata {#metadata}
 
@@ -802,6 +975,8 @@ the bound key is used. An application profile SHOULD specify:
   the old key signs a statement endorsing the new key.
 - Whether `key_uv` is required, and how a signature is bound to
   a fresh value.
+- Whether key endorsements are used, for which key uses, and how
+  `key_ctx` identifies a context.
 
 For example, an E2EE messaging application might publish the
 KBIA alongside a chain of statements signed by the bound key
@@ -817,68 +992,7 @@ agents that relay it can neither alter nor forge it.
 
 # Security Considerations
 
-## Confusion with Other Tokens
-
-KBIAs are designed for wide distribution, so they must never be
-accepted as authentication or authorization tokens. This
-document mitigates confusion by explicit typing ({{RFC8725}}),
-by omitting `aud`, by the `N_A` token type, and by forbidding
-the AS from accepting KBIAs as input. Resource servers and
-relying parties MUST reject JWTs whose `typ` is `kbia+jwt` or
-`kbia+sd-jwt`.
-
-## Keys Held by Agents
-
-If an AS issued a KBIA for a key held by an agent, every
-statement the agent signed would be attributed to the End-User,
-and approvals meant to constrain the agent would be made by the
-agent itself. {{key-holder}} forbids this. Verifiers MUST NOT
-accept as the End-User's key a key that appears only in a
-credential whose subject or actor is an agent.
-
-## Proof of Possession at Issuance
-
-The DPoP proof with a server-provided nonce shows the AS that
-the requesting client holds the private key at the time of the
-request. Without it, a client could obtain a KBIA for a key
-belonging to someone else, causing verifiers to attribute that
-key's signatures to the wrong user.
-
-## Bound Key Compromise
-
-An attacker holding the private bound key can impersonate the
-End-User to any verifier that accepts the KBIA, until it
-expires or is revoked. Clients SHOULD store bound keys in
-non-exportable, hardware-backed storage where available. The
-AS SHOULD offer a means for End-Users and administrators to
-revoke KBIAs.
-
-## Compromise of the Subject Token
-
-An attacker that steals a subject token and holds its own key
-could request a KBIA binding its key to the End-User. The AS
-SHOULD prefer sender-constrained subject tokens (such as
-DPoP-bound access tokens), SHOULD require recent
-authentication ({{issuance}}), and MAY require that the DPoP
-key used to obtain the subject token match the key to be
-bound.
-
-## IdP Compromise {#idp-compromise}
-
-A compromised or malicious AS can issue KBIAs binding a user's
-identity to an attacker's key, and verifiers relying solely on
-KBIAs cannot detect this. Applications needing protection
-against this threat SHOULD combine KBIAs with out-of-band key
-verification or with a key transparency system {{KEYTRANS}},
-which allows End-Users to detect keys issued for them that
-they did not request.
-
-## Assertion Lifetime
-
-Long KBIA lifetimes improve offline verifiability but extend
-the window in which a compromised bound key or a reassigned
-`sub` is accepted. Deployments SHOULD balance lifetime against
-the availability of revocation checking.
+TODO
 
 # Privacy Considerations
 
@@ -951,6 +1065,23 @@ Change Controller:
 Specification Document(s):
 : {{uv}} of this document
 
+IANA is also requested to register the following claims in the
+same registry, each with Change Controller "IETF" and
+Specification Document(s) "{{endorsements}} of this document":
+
+- `kbia_jkt`: Thumbprint of the KBIA identity key
+- `key_use`: Permitted uses of an endorsed key
+- `key_ctx`: Context of an endorsed key
+- `one_time`: Single-use key
+
+## KBIA Key Uses {#iana-key-uses}
+
+IANA is requested to create the "KBIA Key Uses" registry, with
+the Specification Required policy {{!RFC8126}}. Each entry has a
+value, a description, and a reference. The initial entries,
+each referencing {{endorsements}} of this document, are `mls`,
+`approval`, `presentation`, and `encryption`.
+
 ## OAuth Parameters
 
 IANA is requested to register the following parameter in the
@@ -971,9 +1102,10 @@ Specification Document:
 ## Media Types
 
 IANA is requested to register the media types
-`application/kbia+jwt` and `application/kbia+sd-jwt` in the
+`application/kbia+jwt`, `application/kbia+sd-jwt`, and
+`application/kbia-endorsement+jwt` in the
 "Media Types" registry, for use in the `typ` header as
-described in {{kbia-format}}. Full registration templates will
+described in {{kbia-format}} and {{endorsements}}. Full registration templates will
 be provided in a future revision.
 
 --- back
