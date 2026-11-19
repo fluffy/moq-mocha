@@ -102,28 +102,14 @@ informative:
 
 --- abstract
 
-OpenID Connect ID Tokens assert that a user authenticated to a
-particular client, but they do not bind that assertion to a key
-held by the user, and they are bearer tokens that are unsafe to
-disclose to third parties. Many applications need an assertion
-from the user's identity provider that a long-lived public key
-belongs to an authenticated user, which can be published to and
-verified by arbitrary parties long after issuance: end-to-end
-encrypted messaging, to know whose key a group member holds, and
-systems in which software agents act for a user, to tell the
-user's own approval or signed statement from one an agent made.
-This document defines the
-Key-Bound Identity Assertion (KBIA), a JWT issued by an OAuth 2.0
-authorization server that binds a user's subject identifier to a
-public key whose possession the user has proven. KBIAs are
-obtained using OAuth 2.0 Token Exchange with a DPoP proof, are
-explicitly typed so that they cannot be confused with access or
-ID Tokens, are issued only for keys that sign at the user's
-direction, never for keys held by an agent acting on its own,
-and optionally attest that the key requires user
-verification and support selective disclosure. The bound key
-can endorse further keys that are short-lived and scoped to a
-session, a dialog, or an audience.
+This document defines the Key-Bound Identity Assertion (KBIA), a JWT
+that an OAuth 2.0 authorization server issues, through Token Exchange
+with a DPoP proof, to bind a user's identity to a public key the user
+holds. Unlike an ID Token, a KBIA is not a bearer credential and can
+be published, so any party can verify that a signature came from that
+user, as end-to-end encrypted messaging and agent systems require.
+The bound key can endorse further keys, each short-lived and limited
+to one use, such as a session, a dialog, or one verifier.
 
 --- middle
 
