@@ -96,29 +96,6 @@ informative:
     seriesinfo:
       Internet-Draft: draft-nandakumar-oauth-principal-confirmed-grants-00
     target: https://datatracker.ietf.org/doc/draft-nandakumar-oauth-principal-confirmed-grants/
-  OPENPUBKEY:
-    title: "OpenPubkey: Augmenting OpenID Connect with User held Signing Keys"
-    author:
-      -
-        name: Ethan Heilman
-      -
-        name: Lucie Mugnier
-      -
-        name: Athanasios Filippidis
-      -
-        name: Sharon Goldberg
-      -
-        name: Sebastien Lipman
-      -
-        name: Yuval Marcus
-      -
-        name: Mike Milano
-      -
-        name: Sidhartha Premkumar
-      -
-        name: Chad Unrein
-    date: 2023
-    target: https://eprint.iacr.org/2023/296
 
 
 --- abstract
@@ -139,8 +116,9 @@ authorization server that binds a user's subject identifier to a
 public key whose possession the user has proven. KBIAs are
 obtained using OAuth 2.0 Token Exchange with a DPoP proof, are
 explicitly typed so that they cannot be confused with access or
-ID Tokens, can only be issued for keys held on the user's own
-device, and optionally attest that the key requires user
+ID Tokens, are issued only for keys that sign at the user's
+direction, never for keys held by an agent acting on its own,
+and optionally attest that the key requires user
 verification and support selective disclosure.
 
 --- middle
@@ -168,10 +146,7 @@ identity and a key the user holds.
 Existing mechanisms each meet part of this need. ID Tokens
 are IdP-signed but bearer, short-lived, and name no user key.
 DPoP-bound access tokens are key-bound but are not identity
-assertions for third parties. Committing to a key in the OIDC
-`nonce`, as OpenPubkey {{OPENPUBKEY}} does, works with
-unmodified IdPs but leaves the IdP unaware of the binding.
-Certificate authorities and verifiable credential ecosystems
+assertions for third parties. Certificate authorities and verifiable credential ecosystems
 can express the binding but require infrastructure beyond the
 IdP. {{gaps}} describes these mechanisms in more detail.
 
@@ -190,12 +165,17 @@ independent of session tokens, and the AS keeps its signing keys
 verifiable for that lifetime.
 
 Because a KBIA attributes every signature of the bound key to
-the End-User, the key must be held by the End-User and not by
-software that acts for them; the AS issues KBIAs only to clients
-on the End-User's own device ({{key-holder}}). A KBIA can also
-state that the key signs only after the End-User is verified on
-that device ({{uv}}), so that a signature shows the End-User was
-present.
+the End-User, the key must sign only at the End-User's
+direction. The AS issues KBIAs only to clients that act at the
+End-User's direction, such as an application on the End-User's
+device or a wallet whose key only the End-User's approval
+unlocks, and never to a client that acts for the End-User on its
+own, such as an AI agent ({{key-holder}}). An agent acting for the
+End-User has its own identity and a delegation credential naming
+it as actor; it can relay signatures made with the bound key but
+cannot make them. A KBIA can also state that the key signs only
+after the End-User is verified ({{uv}}), so that a signature shows
+the End-User was present.
 
 ## Goals
 
@@ -282,10 +262,12 @@ Signed records:
   that the End-User signed an approval or a message.
 
 The approvals and limits above are meaningful only if the
-End-User, not an agent, made the signature. A key-bound identity
-for these uses must therefore be held on the End-User's own
-device ({{key-holder}}), and approvals need evidence that the
-End-User was present when the key signed ({{uv}}).
+End-User, not an agent, made the signature. Agents still act on
+their own for the End-User, under delegation credentials that
+name them; what they cannot do is sign as the End-User. A
+key-bound identity for these uses must therefore sign only at the
+End-User's direction ({{key-holder}}), and approvals need evidence
+that the End-User was present when the key signed ({{uv}}).
 
 # Existing Mechanisms {#gaps}
 
@@ -328,30 +310,6 @@ server, not an identity assertion for third parties. It may be
 opaque, is audience-restricted to resource servers, and is
 short-lived. Sender-constraining prevents reuse without the
 key, but access tokens are not designed for publication.
-
-## Nonce Commitment (OpenPubkey) {#existing-openpubkey}
-
-OpenPubkey {{OPENPUBKEY}} sets the OIDC `nonce` to a commitment
-to the user's public key, so that the IdP-signed ID Token
-indirectly names the key. This works with unmodified IdPs and
-is verifiable by third parties.
-
-The IdP is unaware that it is binding a key and performs no
-possession check; possession is shown only by the client's
-later signatures. The result is an ID Token and inherits its
-properties: it is a bearer artifact, discloses all claims,
-cannot be revoked, and becomes unverifiable when the IdP
-rotates its signing key. ID Tokens obtained by refresh may not
-carry the original nonce, so each new binding requires a fresh
-authentication.
-
-OpenPubkey optionally replaces the IdP's RSA signature with a
-Guillou-Quisquater (GQ) proof of knowledge of that signature.
-The resulting token verifies against the IdP's public key but
-cannot be presented as an ID Token, which removes the bearer
-risk for RSA-signing IdPs. To remain verifiable after IdP key
-rotation, OpenPubkey relies on archived JWKS or an additional
-cosigner, which adds infrastructure.
 
 ## Enterprise X.509 PKI
 
@@ -507,8 +465,8 @@ The KBIA payload is a JSON object with the following claims:
 
 `key_uv`:
 : OPTIONAL. `true` if the AS verified at issuance that the bound
-  key signs only after user verification on the device that
-  holds it ({{uv}}). Absent otherwise.
+  key signs only after the End-User is verified ({{uv}}). Absent
+  otherwise.
 
 The KBIA MUST NOT contain an `aud` claim. A KBIA is intended
 for any verifier, and its absence ensures that relying parties
@@ -620,8 +578,8 @@ The AS MUST:
    subject token. The AS MAY instead respond with the error
    `interaction_required`, prompting the client to
    re-authenticate the End-User.
-5. Verify that the client runs on a device under the End-User's
-   control ({{key-holder}}).
+5. Verify that the client acts only at the End-User's direction
+   ({{key-holder}}).
 6. Apply any policy on which End-Users and clients may obtain
    KBIAs.
 
@@ -666,31 +624,38 @@ AS uses:
 
 # Key Holder {#key-holder}
 
-A KBIA states that the End-User holds the bound key, and
+A KBIA states that the End-User controls the bound key, and
 verifiers attribute every signature of that key to the End-User.
-The statement is false if the key is held by software that acts
-for the End-User without the End-User taking part, such as an
-AI agent or another autonomous service, even one that the
-End-User operates: whatever that software signed would be taken
-as the End-User's own statement.
+What matters is who directs a signature, not where the key is
+stored: every client is software acting for the End-User, but a
+messaging application or a wallet signs only when the End-User
+asks it to, while an AI agent or another autonomous service
+decides for itself what to sign. If such software held the key,
+whatever it signed would be taken as the End-User's own
+statement, even if the End-User operates it.
 
-An AS MUST issue KBIAs only to clients that run on a device
-under the End-User's control, such as a messaging application or
-a wallet on the End-User's phone or computer, and MUST NOT issue
-a KBIA to a client that acts for the End-User autonomously. The
+An AS MUST issue KBIAs only to clients that act at the End-User's
+direction, and MUST NOT issue a KBIA to a client that acts for
+the End-User on its own. Clients that act at the End-User's
+direction include an application on the End-User's phone or
+computer, and a wallet or remote signing service whose key only
+the End-User's approval unlocks, for example with a passkey. The
 AS determines this from the client's registration, or from a
 client attestation {{ABCA}} that identifies the client
-application. A client that both runs on the End-User's device
-and hosts an agent MUST keep the bound key out of the agent's
-reach, for example in a platform authenticator that signs only
-after user verification ({{uv}}).
+application. Software that hosts both, such as an assistant
+running in the same application or on the same device, MUST keep
+the bound key out of the agent's reach, for example in a platform
+authenticator that signs only after user verification ({{uv}}).
 
-Software that acts for an End-User and needs a key-bound
-identity of its own uses a workload credential {{WIMSE-CREDS}},
-with its authority conveyed in a delegation credential that
-names it as actor {{RFC8693}}. Verifiers can then tell its
-statements from the End-User's. Such software can relay a KBIA
-and signatures made with its bound key, but cannot produce them.
+This does not limit what agents can do for the End-User. An agent
+acts under its own identity, such as a workload credential
+{{WIMSE-CREDS}}, with the End-User's authority conveyed in a
+delegation credential that names the End-User as subject and the
+agent as actor {{RFC8693}}, so that verifiers see both who acted
+and for whom. KBIAs cover the statements that must be the
+End-User's own, such as approving an action or setting the limits
+of a task. An agent can relay a KBIA and signatures made with its
+bound key, but cannot make them.
 
 # User Verification {#uv}
 
@@ -699,9 +664,9 @@ that the End-User was present. `auth_time` describes the
 authentication before issuance, which may be months earlier. An
 application in which a signature stands for the End-User's
 decision, such as an approval ({{uses}}), needs a key that signs
-only after the End-User is verified on the device, as platform
-authenticators and hardware-backed keys with user-authentication
-requirements do.
+only after the End-User is verified, as platform authenticators,
+hardware-backed keys with user-authentication requirements, and
+wallets unlocked by a passkey do.
 
 The AS includes `key_uv` with the value `true` only when it has
 verified, from a key attestation for the bound key, that the key
@@ -774,7 +739,7 @@ A verifier validating a KBIA MUST:
 
 A valid KBIA tells the verifier that the AS authenticated the
 End-User `sub`, observed proof of possession of the bound key,
-and issued it to a client on the End-User's device
+and issued it to a client that acts at the End-User's direction
 ({{key-holder}}). It does not, by itself, tell the verifier that the party
 presenting the KBIA holds the bound key. A verifier MUST NOT
 treat possession or presentation of a KBIA as authentication
@@ -1012,25 +977,6 @@ described in {{kbia-format}}. Full registration templates will
 be provided in a future revision.
 
 --- back
-
-# Nonce-Based Key Commitment {#nonce-commitment}
-{:numbered="false"}
-
-Where an IdP does not support KBIAs, applications can
-approximate one by committing to the user's key in the OIDC
-`nonce` parameter, as done by OpenPubkey {{OPENPUBKEY}}: the
-client sets `nonce` to a hash of the public key and a random
-salt, and publishes the resulting ID Token together with the
-salt. A verifier recomputes the hash and checks it against the
-token's `nonce`.
-
-This approach works with unmodified IdPs. Its limitations,
-and the optional GQ signature variant, are described in
-{{existing-openpubkey}}. Applications using it SHOULD at least request the
-ID Token with a client ID dedicated to key binding and ensure
-that no relying party accepts ID Tokens issued to that client
-ID for authentication, since the published token is otherwise a
-replayable bearer token.
 
 # Acknowledgments
 {:numbered="false"}
