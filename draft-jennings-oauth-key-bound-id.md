@@ -17,6 +17,7 @@ keyword:
  - Proof of Possession
  - Identity
  - End-to-End Encryption
+ - AI Agents
 venue:
   group: "Web Authorization Protocol"
   type: "Working Group"
@@ -74,6 +75,27 @@ informative:
     target: https://www.w3.org/TR/webauthn-2/
   SD-JWT-VC: I-D.draft-ietf-oauth-sd-jwt-vc
   KEYTRANS: I-D.draft-ietf-keytrans-architecture
+  ABCA: I-D.ietf-oauth-attestation-based-client-auth
+  WIMSE-CREDS: I-D.ietf-wimse-workload-creds
+  CIBA:
+    title: "OpenID Connect Client-Initiated Backchannel Authentication Flow - Core 1.0"
+    date: 2021
+    target: https://openid.net/specs/openid-client-initiated-backchannel-authentication-core-1_0.html
+  OID4VP:
+    title: "OpenID for Verifiable Presentations 1.0"
+    date: 2025
+    target: https://openid.net/specs/openid-4-verifiable-presentations-1_0.html
+  PACE: I-D.nandakumar-agentproto-pace
+  PACE-AUTHZ: I-D.nandakumar-agentproto-pace-authz
+  PRINCIPAL-GRANTS:
+    title: "Principal-Confirmed Delegation Grants"
+    date: 2026-11
+    author:
+    - ins: S. Nandakumar
+    - ins: C. Jennings
+    seriesinfo:
+      Internet-Draft: draft-nandakumar-oauth-principal-confirmed-grants-00
+    target: https://datatracker.ietf.org/doc/draft-nandakumar-oauth-principal-confirmed-grants/
   OPENPUBKEY:
     title: "OpenPubkey: Augmenting OpenID Connect with User held Signing Keys"
     author:
@@ -104,30 +126,44 @@ informative:
 OpenID Connect ID Tokens assert that a user authenticated to a
 particular client, but they do not bind that assertion to a key
 held by the user, and they are bearer tokens that are unsafe to
-disclose to third parties. Applications such as end-to-end
-encrypted messaging need an assertion from the user's identity
-provider that a long-lived public key belongs to an
-authenticated user, which can be published to and verified by
-arbitrary peers long after issuance. This document defines the
+disclose to third parties. Many applications need an assertion
+from the user's identity provider that a long-lived public key
+belongs to an authenticated user, which can be published to and
+verified by arbitrary parties long after issuance: end-to-end
+encrypted messaging, to know whose key a group member holds, and
+systems in which software agents act for a user, to tell the
+user's own approval or signed statement from one an agent made.
+This document defines the
 Key-Bound Identity Assertion (KBIA), a JWT issued by an OAuth 2.0
 authorization server that binds a user's subject identifier to a
 public key whose possession the user has proven. KBIAs are
 obtained using OAuth 2.0 Token Exchange with a DPoP proof, are
 explicitly typed so that they cannot be confused with access or
-ID Tokens, and optionally support selective disclosure.
+ID Tokens, can only be issued for keys held on the user's own
+device, and optionally attest that the key requires user
+verification and support selective disclosure.
 
 --- middle
 
 # Introduction
 
-End-to-end encrypted (E2EE) communication systems, such as those
-built on Messaging Layer Security (MLS) {{RFC9420}}, need to
-answer the question "does this public key belong to
-alice@example.com?". Many deployments already have an
-authoritative answer to "is this user alice@example.com?": the
-organization's OpenID Connect (OIDC) {{OIDC}} identity provider
-(IdP). What is missing is a standard way for the IdP to assert
-the binding between that identity and a key the user holds.
+Many systems need to answer the question "does this public key
+belong to alice@example.com?", asked by a party that is not the
+relying party Alice signed in to. End-to-end encrypted (E2EE)
+communication, such as that built on Messaging Layer Security
+(MLS) {{RFC9420}}, asks it of every group member. Systems in
+which software agents act for a person ask it whenever a
+statement must come from the person rather than from an agent:
+an approval of a payment that an agent relays to another
+organization, limits the person set for a task that agents carry
+out overnight, or a person's identity in a session shared with
+agents. {{uses}} describes these needs.
+
+Many deployments already have an authoritative answer to "is
+this user alice@example.com?": the organization's OpenID Connect
+(OIDC) {{OIDC}} identity provider (IdP). What is missing is a
+standard way for the IdP to assert the binding between that
+identity and a key the user holds.
 
 Existing mechanisms each meet part of this need. ID Tokens
 are IdP-signed but bearer, short-lived, and name no user key.
@@ -153,6 +189,14 @@ it requires a signature by the bound key. Its lifetime is
 independent of session tokens, and the AS keeps its signing keys
 verifiable for that lifetime.
 
+Because a KBIA attributes every signature of the bound key to
+the End-User, the key must be held by the End-User and not by
+software that acts for them; the AS issues KBIAs only to clients
+on the End-User's own device ({{key-holder}}). A KBIA can also
+state that the key signs only after the End-User is verified on
+that device ({{uv}}), so that a signature shows the End-User was
+present.
+
 ## Goals
 
 The goal is an assertion, issued by an existing OAuth 2.0
@@ -166,7 +210,12 @@ Status List) rather than defining new protocols.
 ## Non-Goals
 
 - Defining how applications use the bound key (for example, as
-  an MLS credential); that is left to application profiles.
+  an MLS credential or to sign an approval); that is left to
+  application profiles.
+- Identifying software agents. An agent that acts for an
+  End-User has its own workload identity {{WIMSE-CREDS}} and
+  holds its authority in delegation credentials that name it as
+  actor {{RFC8693}}.
 - Detecting a compromised IdP that issues KBIAs for keys the
   user does not hold; see {{idp-compromise}}.
 - Replacing general-purpose verifiable credential ecosystems.
@@ -193,6 +242,51 @@ Verifier:
   End-User in an application protocol. A verifier need not be a
   client of the AS.
 
+# Where a Key-Bound Identity Is Needed {#uses}
+
+In each of the following, a party that is not the relying party
+of the End-User's sign-in must attribute a signature to the
+End-User. None can use an ID Token, which would be a replayable
+bearer credential in that party's hands.
+
+Group membership in end-to-end encrypted communication:
+: An MLS {{RFC9420}} group member checks that the credential in
+  each LeafNode belongs to the person it claims to name, often
+  long after that person joined.
+
+A person's approval relayed by agents:
+: An agent acting for the End-User asks a service in another
+  organization to perform an action, such as a payment, that the
+  service will perform only with the End-User's own approval.
+  Agents carry the request to the End-User and the approval back,
+  so the approval must be signed with a key the End-User holds,
+  and the service, which never interacted with the End-User,
+  must know that the key is the End-User's. {{PACE-AUTHZ}} is an
+  example of a protocol with this need.
+
+Authority set in advance:
+: The End-User sets limits for a task, such as a price ceiling,
+  that agents carry out while the End-User is unavailable. The
+  limits signed with the End-User's key travel with the chain of
+  delegations and are verified later, offline, by parties that
+  never interacted with the End-User or its identity provider.
+  {{PRINCIPAL-GRANTS}} is an example.
+
+People in sessions with agents:
+: A conference or multi-party dialog among people and agents
+  spans organizations, and each participant needs to know which
+  participants are which people. {{PACE}} is an example.
+
+Signed records:
+: An auditor or a party to a dispute checks, after the fact,
+  that the End-User signed an approval or a message.
+
+The approvals and limits above are meaningful only if the
+End-User, not an agent, made the signature. A key-bound identity
+for these uses must therefore be held on the End-User's own
+device ({{key-holder}}), and approvals need evidence that the
+End-User was present when the key signed ({{uv}}).
+
 # Existing Mechanisms {#gaps}
 
 This section describes existing mechanisms that bind, or could
@@ -211,6 +305,19 @@ audience. It typically expires within an hour, and its
 signature can no longer be verified once the IdP removes the
 signing key from its JWKS. It discloses every claim it contains
 and cannot be revoked.
+
+## Mechanisms for Approvals
+
+Agent systems obtain a person's approval in several ways, each of
+which binds the approval to the person only for some verifiers.
+A WebAuthn {{WEBAUTHN}} assertion is signed by the person's
+authenticator, but its key is registered with one relying party,
+so other parties cannot tell whose key it is. A token issued
+after a back-channel approval through CIBA {{CIBA}} is signed by
+the identity provider, not the person, and convinces only
+parties that trust that provider to have asked. A verifiable
+presentation {{OID4VP}} binds the approval to a credential's key,
+but requires a wallet and a credential issuer ({{sd-jwt-vc}}).
 
 ## DPoP-Bound Access Tokens
 
@@ -258,7 +365,7 @@ the IdP, and certificates disclose their full subject.
 Operating a PKI for end users is a significant burden that many
 organizations with a modern IdP have moved away from.
 
-## SD-JWT Verifiable Credentials
+## SD-JWT Verifiable Credentials {#sd-jwt-vc}
 
 An SD-JWT VC {{SD-JWT-VC}} with holder key binding, issued
 through OpenID for Verifiable Credential Issuance {{OID4VCI}},
@@ -398,6 +505,11 @@ The KBIA payload is a JSON object with the following claims:
 : OPTIONAL. A reference to a Token Status List entry
   {{STATUS-LIST}} that the AS uses to revoke the KBIA.
 
+`key_uv`:
+: OPTIONAL. `true` if the AS verified at issuance that the bound
+  key signs only after user verification on the device that
+  holds it ({{uv}}). Absent otherwise.
+
 The KBIA MUST NOT contain an `aud` claim. A KBIA is intended
 for any verifier, and its absence ensures that relying parties
 that check `aud` will not accept a KBIA in place of an ID Token
@@ -434,8 +546,8 @@ Example payload:
 
 An AS MAY issue a KBIA as an SD-JWT {{SD-JWT}}. In that case
 the `typ` header value is `kbia+sd-jwt`. The claims `iss`,
-`sub`, `cnf`, `iat`, `exp`, `nbf`, `jti`, `auth_time`, and
-`status` MUST NOT be selectively disclosable. End-User claims
+`sub`, `cnf`, `iat`, `exp`, `nbf`, `jti`, `auth_time`,
+`status`, and `key_uv` MUST NOT be selectively disclosable. End-User claims
 such as `email` SHOULD be selectively disclosable, so that the
 holder can choose which claims each verifier learns.
 
@@ -508,7 +620,9 @@ The AS MUST:
    subject token. The AS MAY instead respond with the error
    `interaction_required`, prompting the client to
    re-authenticate the End-User.
-5. Apply any policy on which End-Users and clients may obtain
+5. Verify that the client runs on a device under the End-User's
+   control ({{key-holder}}).
+6. Apply any policy on which End-Users and clients may obtain
    KBIAs.
 
 If all checks succeed, the AS issues a KBIA whose `cnf.jwk` is
@@ -549,6 +663,58 @@ AS uses:
 
 `interaction_required`:
 : The End-User must re-authenticate before a KBIA can be issued.
+
+# Key Holder {#key-holder}
+
+A KBIA states that the End-User holds the bound key, and
+verifiers attribute every signature of that key to the End-User.
+The statement is false if the key is held by software that acts
+for the End-User without the End-User taking part, such as an
+AI agent or another autonomous service, even one that the
+End-User operates: whatever that software signed would be taken
+as the End-User's own statement.
+
+An AS MUST issue KBIAs only to clients that run on a device
+under the End-User's control, such as a messaging application or
+a wallet on the End-User's phone or computer, and MUST NOT issue
+a KBIA to a client that acts for the End-User autonomously. The
+AS determines this from the client's registration, or from a
+client attestation {{ABCA}} that identifies the client
+application. A client that both runs on the End-User's device
+and hosts an agent MUST keep the bound key out of the agent's
+reach, for example in a platform authenticator that signs only
+after user verification ({{uv}}).
+
+Software that acts for an End-User and needs a key-bound
+identity of its own uses a workload credential {{WIMSE-CREDS}},
+with its authority conveyed in a delegation credential that
+names it as actor {{RFC8693}}. Verifiers can then tell its
+statements from the End-User's. Such software can relay a KBIA
+and signatures made with its bound key, but cannot produce them.
+
+# User Verification {#uv}
+
+A signature by the bound key shows that the key was used, not
+that the End-User was present. `auth_time` describes the
+authentication before issuance, which may be months earlier. An
+application in which a signature stands for the End-User's
+decision, such as an approval ({{uses}}), needs a key that signs
+only after the End-User is verified on the device, as platform
+authenticators and hardware-backed keys with user-authentication
+requirements do.
+
+The AS includes `key_uv` with the value `true` only when it has
+verified, from a key attestation for the bound key, that the key
+has this property. It MUST NOT include `key_uv` otherwise.
+
+Editor's note: How the client conveys a key attestation in the
+token request is to be defined, for example alongside the client
+attestation of {{ABCA}}.
+
+Freshness of a signature comes from the application: the bound
+key signs a value the verifier chose, or one bound to the
+request being approved, and the verifier checks the time of the
+signature.
 
 # Lifetime and Signing Keys {#lifetime}
 
@@ -607,14 +773,20 @@ A verifier validating a KBIA MUST:
    {{SD-JWT}}.
 
 A valid KBIA tells the verifier that the AS authenticated the
-End-User `sub` and observed proof of possession of the bound
-key. It does not, by itself, tell the verifier that the party
+End-User `sub`, observed proof of possession of the bound key,
+and issued it to a client on the End-User's device
+({{key-holder}}). It does not, by itself, tell the verifier that the party
 presenting the KBIA holds the bound key. A verifier MUST NOT
 treat possession or presentation of a KBIA as authentication
 of the presenter. Applications establish that a peer holds the
 bound key by verifying signatures made with it, for example a
 signature over a verifier-chosen challenge, over application
 messages, or over a credential such as an MLS LeafNode.
+
+A verifier that treats a signature by the bound key as the
+End-User's decision, such as an approval, SHOULD require
+`key_uv`, and checks the signature's freshness as the
+application profile specifies ({{uv}}).
 
 Verifiers MAY identify the bound key by its JWK thumbprint
 {{RFC7638}}, for example for display and out-of-band comparison.
@@ -663,11 +835,20 @@ the bound key is used. An application profile SHOULD specify:
   verifiers.
 - How changes of the bound key are handled, including whether
   the old key signs a statement endorsing the new key.
+- Whether `key_uv` is required, and how a signature is bound to
+  a fresh value.
 
 For example, an E2EE messaging application might publish the
 KBIA alongside a chain of statements signed by the bound key
 that authorize each of the user's device keys, and use the
 device keys in MLS credentials.
+
+An agent system might carry a person's approval of an action as
+a signature by the bound key over a hash of the request, together
+with the KBIA, so that the service performing the action and any
+later auditor can verify that the person approved it, while the
+agents that relay it can neither alter nor forge it.
+{{PACE-AUTHZ}} and {{PRINCIPAL-GRANTS}} define such uses.
 
 # Security Considerations
 
@@ -680,6 +861,15 @@ by omitting `aud`, by the `N_A` token type, and by forbidding
 the AS from accepting KBIAs as input. Resource servers and
 relying parties MUST reject JWTs whose `typ` is `kbia+jwt` or
 `kbia+sd-jwt`.
+
+## Keys Held by Agents
+
+If an AS issued a KBIA for a key held by an agent, every
+statement the agent signed would be attributed to the End-User,
+and approvals meant to constrain the agent would be made by the
+agent itself. {{key-holder}} forbids this. Verifiers MUST NOT
+accept as the End-User's key a key that appears only in a
+credential whose subject or actor is an agent.
 
 ## Proof of Possession at Issuance
 
@@ -738,6 +928,12 @@ different contexts need to recognize the same End-User; an AS
 that uses pairwise identifiers MUST use the identifier for the
 requesting client.
 
+In agent systems, a KBIA travels with requests to parties the
+End-User never contacted, each of which learns `sub` and the
+bound key. Where the End-User's identity is not needed, for
+example where a chain of delegations names the End-User only by
+a pseudonym, applications SHOULD NOT attach a KBIA.
+
 Status list checks may reveal to the AS which KBIAs a verifier
 is checking; see {{STATUS-LIST}} for mitigations.
 
@@ -772,6 +968,23 @@ Specification Document "{{metadata}} of this document":
 - `kbia_formats_supported`
 - `kbia_max_lifetime`
 - `kbia_jwks_uri`
+
+## JSON Web Token Claims
+
+IANA is requested to register the following claim in the "JSON
+Web Token Claims" registry established by {{RFC7519}}:
+
+Claim Name:
+: key_uv
+
+Claim Description:
+: Bound key requires user verification
+
+Change Controller:
+: IETF
+
+Specification Document(s):
+: {{uv}} of this document
 
 ## OAuth Parameters
 
