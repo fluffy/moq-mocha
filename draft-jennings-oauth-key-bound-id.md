@@ -115,63 +115,37 @@ to one use, such as a session, a dialog, or one verifier.
 
 # Introduction
 
-Many systems need to answer the question "does this public key
-belong to alice@example.com?", asked by a party that is not the
-relying party Alice signed in to. End-to-end encrypted (E2EE)
-communication, such as that built on Messaging Layer Security
-(MLS) {{RFC9420}}, asks it of every group member. Systems in
-which software agents act for a person ask it whenever a
-statement must come from the person rather than from an agent:
-an approval of a payment that an agent relays to another
-organization, limits the person set for a task that agents carry
-out overnight, or a person's identity in a session shared with
-agents. {{uses}} describes these needs.
+A party often needs to know whether a public key belongs to a
+user, such as alice@example.com, even though Alice never signed
+in to that party. Members of an end-to-end encrypted group, such
+as one using Messaging Layer Security (MLS) {{RFC9420}}, need
+this for each other, and so does any party that receives a
+person's statement through an agent acting for that person
+({{uses}}). The organization's OpenID Connect (OIDC) {{OIDC}}
+identity provider (IdP) is usually already the authority for the
+user's identity, but it has no standard way to assert that the
+user holds a given key. Existing mechanisms each meet only part
+of this need ({{gaps}}).
 
-Many deployments already have an authoritative answer to "is
-this user alice@example.com?": the organization's OpenID Connect
-(OIDC) {{OIDC}} identity provider (IdP). What is missing is a
-standard way for the IdP to assert the binding between that
-identity and a key the user holds.
+This document defines the Key-Bound Identity Assertion (KBIA), a
+JWT {{RFC7519}} signed by the authorization server (AS) stating
+that the subject `sub` at issuer `iss` proved possession of the
+public key in its `cnf` claim {{RFC7800}}. A client obtains a
+KBIA through OAuth 2.0 Token Exchange {{RFC8693}}, proving
+possession of the key with a DPoP proof {{RFC9449}}.
 
-Existing mechanisms each meet part of this need. ID Tokens
-are IdP-signed but bearer, short-lived, and name no user key.
-DPoP-bound access tokens are key-bound but are not identity
-assertions for third parties. Certificate authorities and verifiable credential ecosystems
-can express the binding but require infrastructure beyond the
-IdP. {{gaps}} describes these mechanisms in more detail.
+A KBIA is designed to be published: possession of it confers
+nothing, and relying on it requires a signature by the bound key.
+Because every such signature is attributed to the End-User, the
+AS issues KBIAs only to clients that act at the End-User's
+direction, never to an agent acting on its own, which can relay
+signatures made with the key but not make them ({{key-holder}}).
+A KBIA can also state that the key signs only after the End-User
+is verified ({{uv}}).
 
-This document fills the gap with a narrowly scoped token: the
-Key-Bound Identity Assertion (KBIA). A KBIA is a JWT {{RFC7519}}
-signed by the authorization server (AS) that states that the
-subject `sub` at issuer `iss` proved possession of the public key
-in its `cnf` claim {{RFC7800}}. A client obtains a KBIA from the
-AS's token endpoint using OAuth 2.0 Token Exchange {{RFC8693}},
-proving possession of the key with a DPoP proof {{RFC9449}}.
-
-A KBIA is designed to be published. It is not a bearer
-credential: possession of a KBIA confers nothing, and relying on
-it requires a signature by the bound key. Its lifetime is
-independent of session tokens, and the AS keeps its signing keys
-verifiable for that lifetime.
-
-Because a KBIA attributes every signature of the bound key to
-the End-User, the key must sign only at the End-User's
-direction. The AS issues KBIAs only to clients that act at the
-End-User's direction, such as an application on the End-User's
-device or a wallet whose key only the End-User's approval
-unlocks, and never to a client that acts for the End-User on its
-own, such as an AI agent ({{key-holder}}). An agent acting for the
-End-User has its own identity and a delegation credential naming
-it as actor; it can relay signatures made with the bound key but
-cannot make them. A KBIA can also state that the key signs only
-after the End-User is verified ({{uv}}), so that a signature shows
-the End-User was present.
-
-A KBIA binds one key, which can stay in protected storage and
-sign rarely. That key can endorse further keys, each short-lived
-and limited to one use, such as one session, one dialog, or one
-audience, so that the keys applications use day to day are not
-long-lived ({{endorsements}}).
+The bound key can stay in protected storage and endorse further
+keys, each short-lived and limited to one use, such as one
+session, one dialog, or one audience ({{endorsements}}).
 
 ## Goals
 
