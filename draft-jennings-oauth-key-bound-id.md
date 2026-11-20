@@ -89,15 +89,6 @@ informative:
     target: https://openid.net/specs/openid-4-verifiable-presentations-1_0.html
   PACE: I-D.nandakumar-agentproto-pace
   PACE-AUTHZ: I-D.nandakumar-agentproto-pace-authz
-  PRINCIPAL-GRANTS:
-    title: "Principal-Confirmed Delegation Grants"
-    date: 2026-11
-    author:
-    - ins: S. Nandakumar
-    - ins: C. Jennings
-    seriesinfo:
-      Internet-Draft: draft-nandakumar-oauth-principal-confirmed-grants-00
-    target: https://datatracker.ietf.org/doc/draft-nandakumar-oauth-principal-confirmed-grants/
 
 
 --- abstract
@@ -220,7 +211,6 @@ Authority set in advance:
   limits signed with the End-User's key travel with the chain of
   delegations and are verified later, offline, by parties that
   never interacted with the End-User or its identity provider.
-  {{PRINCIPAL-GRANTS}} is an example.
 
 People in sessions with agents:
 : A conference or multi-party dialog among people and agents
@@ -948,7 +938,7 @@ a signature by the bound key over a hash of the request, together
 with the KBIA, so that the service performing the action and any
 later auditor can verify that the person approved it, while the
 agents that relay it can neither alter nor forge it.
-{{PACE-AUTHZ}} and {{PRINCIPAL-GRANTS}} define such uses.
+{{PACE-AUTHZ}} defines such a use.
 
 # Security Considerations
 
