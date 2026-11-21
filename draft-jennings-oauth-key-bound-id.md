@@ -295,7 +295,7 @@ The KBIA payload is a JSON object with the following claims:
 : REQUIRED. The time of issuance.
 
 `exp`:
-: REQUIRED. The expiration time. See {{lifetime}}.
+: REQUIRED. The expiration time, set by AS policy.
 
 `nbf`:
 : OPTIONAL. The time before which the KBIA is not valid.
@@ -463,8 +463,8 @@ Token Exchange always returns the issued token in
 access token. `token_type` is `N_A`, meaning the KBIA MUST NOT be
 used as an access token ({{RFC8693}} Section 2.2.1).
 `expires_in` is the KBIA's remaining lifetime in seconds. The AS
-issues no refresh token; the client requests a new KBIA instead
-({{lifetime}}).
+issues no refresh token; the client requests a new KBIA before
+this one expires.
 
 
 The response follows {{RFC8693}} Section 2.2:
@@ -549,48 +549,15 @@ attestation of {{ABCA}}.
 
 `key_uv` describes how the key was created, not each signature,
 and whether later changes, such as a new biometric enrollment,
-invalidate the key depends on the platform. To show that a signature is fresh, the
-key signs a value the verifier chose or one bound to the request
-being approved.
+invalidate the key depends on the platform. To show that a 
+signature is fresh, the key signs a value the verifier chose or 
+one bound to the request being approved.
 
 TODO: Passkeys {{WEBAUTHN}} show user verification on every
 signature but cannot sign a DPoP proof or arbitrary content.
 Define how a KBIA can bind one.
 
-# Lifetime and Signing Keys {#lifetime}
-
-KBIAs are intended to be verifiable long after issuance, for
-example by a peer that first encounters a user weeks after the
-user's key was bound. The AS determines the KBIA lifetime by
-policy; lifetimes of days to months are expected. The AS
-advertises its maximum lifetime in `kbia_max_lifetime`
-({{metadata}}).
-
-The AS publishes the public keys that sign KBIAs at
-`kbia_jwks_uri` if it advertises one, and otherwise at its
-`jwks_uri` {{RFC8414}}. Each key MUST stay published until every
-KBIA it signed has expired, and MAY be removed after that.
-
-The AS SHOULD sign KBIAs with keys that it uses for no other
-token, published at `kbia_jwks_uri`. A key that also signs ID
-Tokens or access tokens would otherwise stay published, and
-accepted for those tokens, for as long as the KBIAs it signed.
-
-Keeping a public key published does not require keeping its
-private key. The AS SHOULD sign new KBIAs with each key for a
-limited period, such as a week, and then destroy the private key
-while the public key stays published. This limits what a stolen
-signing key can forge, and keeps the number of published keys to
-about the maximum KBIA lifetime divided by that period. If a
-signing key is compromised, the AS removes its public key, which
-invalidates every KBIA the key signed, and clients obtain new
-KBIAs.
-
-A client SHOULD obtain a new KBIA before the current one
-expires, and MUST obtain a new KBIA when it changes its bound
-key.
-
-# Revocation
+# Revocation {#revocation}
 
 An AS that supports revocation includes a `status` claim
 referencing a Token Status List {{STATUS-LIST}}. The AS SHOULD
@@ -693,8 +660,8 @@ algorithm. The payload contains:
 : REQUIRED. A JSON array of values from the KBIA Key Uses
   registry ({{iana-key-uses}}) stating what the endorsed key may
   be used for. The values defined here are `mls`, for an MLS
-  LeafNode signature key; `presentation`, to prove possession to
-  a verifier; and `encryption`, for a key that others encrypt to.
+  LeafNode signature key,`presentation`, to prove possession to
+  a verifier and `encryption`, for a key that others encrypt to.
   No value permits approvals, which are always signed with the
   bound key ({{endorse-proves}}).
 
@@ -747,10 +714,8 @@ uses only in one dialog, for a few hours:
 
 The client that holds the bound key:
 
-1. Generates the key to be endorsed, or receives its public key
-   from another of the End-User's clients over a channel that
-   authenticates that client, such as a pairing the End-User
-   confirms.
+1. Generates the key to be endorsed, or obtains it from another
+   of the End-User's clients after authenticating that client.
 2. Chooses the narrowest scope the use allows: `key_use`;
    `key_ctx`, if the key is for one session, group, or dialog;
    `aud`, if it is for particular verifiers; `one_time`, if it is
@@ -766,8 +731,8 @@ The client that holds the bound key:
    being handed out once.
 
 The endorsed key's holder sends the KBIA and the endorsement with
-each use of the key, as the application profile specifies
-({{profiles}}), for example in an MLS credential or with a
+each use of the key, as the application profile specifies,
+for example in an MLS credential or with a
 signature over a verifier's challenge. `aud` and `key_ctx` limit
 which verifiers and context accept the key.
 
@@ -800,40 +765,43 @@ every endorsement under it; a single endorsement ends at its
 
 ## What an Endorsement Proves {#endorse-proves}
 
-A verifier learns that the AS bound the bound key to the
-End-User, and that the bound key's holder declared the endorsed
-key to be the End-User's for one use, context, and period. It
-cannot tell who holds the endorsed key. The AS checks the client
-that holds the bound key ({{key-holder}}); no one checks the
-client that holds an endorsed key. That rests on the endorsing
-client alone.
+A verifier of an endorsement learns two things: the AS bound the
+bound key to the End-User, and the holder of the bound key
+declared the endorsed key to be the End-User's for the stated
+use, context, and period. It does not learn who holds the
+endorsed key. Only the bound key's client is vetted, by the AS
+at issuance ({{key-holder}}). For an endorsed key, the verifier
+relies on the endorsing client to have endorsed only a key held
+at the End-User's direction.
 
-An endorsed key that reaches an agent therefore lets the agent
-act as the End-User within the endorsement's scope, undetected.
-`key_use`, `key_ctx`, `aud`, `exp`, and `one_time` bound the
-damage, and revoking the KBIA ends every endorsement under it.
-For this reason, no endorsed key may sign approvals or other
-statements of the End-User's decision. These are signed with the
-bound key, whose holder and user verification the AS checked
-({{uv}}).
+An agent that obtains an endorsed key can act as the End-User
+within the endorsement's scope without verifiers noticing. That
+scope, set by `key_use`, `key_ctx`, `aud`, `exp`, and `one_time`,
+limits the harm, and revoking the KBIA ends every endorsement
+under it. For this reason, approvals and other statements of the
+End-User's decision are signed only with the bound key, whose
+holder and user verification the AS checked at issuance ({{uv}}).
 
-TODO: An endorsement could carry a key attestation for the
-endorsed key, so that a verifier can check where the key is held
-without trusting the endorsing client.
+TODO: Let an endorsement carry a key attestation for the endorsed
+key, so that a verifier can check where the key is held without
+trusting the endorsing client.
 
 ## Endorsement Is Not Delegation
 
-An endorsement says that the endorsed key is the End-User's. A
-delegation credential says that another party's key acts for the
-End-User. Although both are signatures over another key with a
-scope and an expiry, they mean opposite things, and a verifier
-MUST NOT accept one as the other. A JWT with `typ`
-`kbia-endorsement+jwt` MUST NOT be accepted as a delegation
-credential, and a delegation credential MUST NOT be accepted as
-an endorsement. Authority for an agent, even for one session and
-a short time, is conveyed by a delegation credential that names
-the agent's own key {{RFC8693}}, never by endorsing a key for the
-agent to hold.
+An endorsement and a delegation credential both sign over another
+key with a scope and an expiry, but they say different things. An
+endorsement says the key is the End-User's, so what it signs is
+the End-User's own statement. A delegation credential says the
+key belongs to another party, such as an agent, that acts for the
+End-User, so verifiers see both who acted and for whom
+{{RFC8693}}.
+
+An agent therefore receives authority, even for one session,
+through a delegation credential that names its own key, never
+through an endorsement of a key for it to hold. A verifier MUST
+NOT accept an endorsement (`typ` `kbia-endorsement+jwt`) as a
+delegation credential, or a delegation credential as an
+endorsement.
 
 # Authorization Server Metadata {#metadata}
 
@@ -857,43 +825,13 @@ This document defines the following AS metadata parameters
 
 `kbia_jwks_uri`:
 : OPTIONAL. URL of a JWK Set containing the keys used to sign
-  KBIAs, including retired keys still needed under
-  {{lifetime}}.
+  KBIAs. A key stays in the set until every KBIA it signed has
+  expired.
 
 A client determines support by the presence of
 `kbia_signing_alg_values_supported` and
 `urn:ietf:params:oauth:grant-type:token-exchange` in
 `grant_types_supported`.
-
-# Application Profiles {#profiles}
-
-This document defines the assertion; applications define how
-the bound key is used. An application profile SHOULD specify:
-
-- Which issuers verifiers accept, and how issuer trust is
-  configured.
-- Which End-User claims, if any, are used to name the user,
-  and whether `email_verified` is required.
-- How the KBIA is distributed to verifiers.
-- How possession of the bound key is demonstrated to
-  verifiers.
-- How changes of the bound key are handled, including whether
-  the old key signs a statement endorsing the new key.
-- Whether `key_uv` is required, and how a signature is bound to
-  a fresh value.
-- Whether key endorsements are used, for which key uses, and how
-  `key_ctx` identifies a context.
-
-For example, an E2EE messaging application might publish the
-KBIA alongside a chain of statements signed by the bound key
-that authorize each of the user's device keys, and use the
-device keys in MLS credentials.
-
-An agent system might carry a person's approval of an action as
-a signature by the bound key over a hash of the request, together
-with the KBIA, so that the service performing the action and any
-later auditor can verify that the person approved it, while the
-agents that relay it can neither alter nor forge it.
 
 # Relationship to SD-JWT VC {#sd-jwt-vc}
 
@@ -917,7 +855,45 @@ verification rules of this document unchanged.
 
 # Security Considerations
 
-TODO
+A KBIA is only as trustworthy as its issuer. An AS that is
+compromised or misbehaves can bind any key to any of its users,
+and verifiers cannot detect this from the KBIA. Key transparency
+{{KEYTRANS}} can let users detect keys bound to them that they
+did not create.
+
+Whoever holds the bound key can sign as the End-User until the
+KBIA expires or is revoked ({{revocation}}). Clients SHOULD keep
+the bound key in hardware that does not allow it to be exported.
+Verifiers that need timely revocation check the status list
+rather than relying on cached status.
+
+An attacker that steals a subject token could otherwise bind its
+own key to the End-User. The AS limits this by requiring that the
+subject token was issued to the requesting client, that the
+End-User authenticated recently, and that the DPoP proof carries
+a fresh AS-provided nonce ({{issuance}}).
+
+A KBIA signing key stays published for as long as the KBIAs it
+signed are valid, which is longer than for most token signing
+keys. The AS SHOULD use dedicated keys for KBIAs, so that keeping
+them published does not prolong trust in its other tokens, and
+SHOULD destroy each private key once it stops signing. If a
+signing key is compromised, the AS removes it from its key set,
+which invalidates every KBIA it signed.
+
+A KBIA is public, so presenting one proves nothing about the
+presenter ({{verification}}). Only a signature by the bound key
+does, and a signature can be replayed unless it covers a value
+the verifier chose or one bound to the request ({{uv}}).
+Verifiers MUST also reject a KBIA used as an access token or ID
+Token, which its `typ` identifies.
+
+A KBIA attributes every signature of the bound key to the
+End-User, so a bound or endorsed key held by an agent lets the
+agent speak as the End-User. The AS checks who holds the bound
+key ({{key-holder}}), but no party checks who holds an endorsed
+key ({{endorse-proves}}). Approvals are therefore signed only
+with the bound key.
 
 # Privacy Considerations
 
